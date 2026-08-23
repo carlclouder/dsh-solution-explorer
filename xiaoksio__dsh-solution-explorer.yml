@@ -1,6 +1,7 @@
 url: https://github.com/xiaoksio/dsh-solution-explorer
 name: xiaoksio/dsh-solution-explorer
 category: git
+tarball: https://github.com/xiaoksio/dsh-solution-explorer/releases/latest/download/dsh-solution-explorer-0.1.0.tgz
 description:
   en: "DSH Web GUI right sidebar: VS Code-style file explorer plus source control (git status, stage/unstage/discard, commit, diff) and a file editor with save."
   zh: "DSH Web GUI 右侧边栏：VS Code 风格文件浏览器加源代码管理（git 状态、暂存/取消暂存/放弃变更、提交、差异）与可保存的文本编辑器。"
