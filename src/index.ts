@@ -135,6 +135,38 @@ async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknow
     req.on('error', () => resolve(null))
   })
 }
+// ─── Filesystem operation helpers (paste / move / upload) ────────────────
+
+/** Strict containment: the resolved path must be inside the workspace root. */
+function ensureInside(root: string, p: string): boolean {
+  const resolvedRoot = pathModule.resolve(root)
+  const full = pathModule.resolve(root, p)
+  return full !== resolvedRoot && full.startsWith(resolvedRoot + pathModule.sep)
+}
+
+/** Pick a non-colliding destination: append " copy" / " copy 2" while taken. */
+async function autoRename(dest: string): Promise<string> {
+  const exists = async (p: string) => fsp.stat(p).then(() => true).catch(() => false)
+  if (!(await exists(dest))) return dest
+  const dir = pathModule.dirname(dest)
+  const ext = pathModule.extname(dest)
+  const base = pathModule.basename(dest, ext)
+  for (let i = 1; ; i++) {
+    const candidate = pathModule.join(dir, `${base} copy${i > 1 ? ' ' + i : ''}${ext}`)
+    if (!(await exists(candidate))) return candidate
+  }
+}
+
+/** Move a path; cross-device (EXDEV) falls back to copy + remove. */
+async function movePath(source: string, dest: string): Promise<void> {
+  try {
+    await fsp.rename(source, dest)
+  } catch (err: any) {
+    if (err?.code !== 'EXDEV') throw err
+    await fsp.cp(source, dest, { recursive: true })
+    await fsp.rm(source, { recursive: true, force: true })
+  }
+}
 
 /** Parse a query string into a record. */
 function parseQuery(url: URL): Record<string, string> {
@@ -418,6 +450,96 @@ export function apply(ctx: Context, config: Config = {}): void {
               json(res, { ok: true, value: { path: target } })
             } catch (err) {
               json(res, { ok: false, error: { message: err instanceof Error ? err.message : String(err) } })
+            }
+            return
+          }
+          case '/solution-explorer/paste': {
+            const mode = payload.mode === 'cut' ? 'cut' : 'copy'
+            const source = typeof payload.source === 'string' ? payload.source : ''
+            const targetDir = typeof payload.targetDir === 'string' ? payload.targetDir : ''
+            if (!root || !source || !targetDir) { json(res, { ok: false, error: { message: 'root, source and targetDir required' } }); return }
+            try {
+              const sourcePath = pathModule.resolve(root, source)
+              // An empty targetDir means the workspace root itself.
+              const targetBase = targetDir ? pathModule.resolve(root, targetDir) : pathModule.resolve(root)
+              if (!ensureInside(root, source) || (targetDir && !ensureInside(root, targetDir))) {
+                json(res, { ok: false, error: { message: 'path traversal denied' } }); return
+              }
+              // A cut must not move a directory into itself.
+              if (mode === 'cut' && (targetBase === sourcePath || targetBase.startsWith(sourcePath + pathModule.sep))) {
+                json(res, { ok: false, error: { message: 'cannot move into itself' } }); return
+              }
+              const dest = await autoRename(pathModule.join(targetBase, pathModule.basename(sourcePath)))
+              if (mode === 'cut') await movePath(sourcePath, dest)
+              else await fsp.cp(sourcePath, dest, { recursive: true, force: false })
+              json(res, { ok: true, value: { path: pathModule.relative(root, dest) } })
+            } catch (err) {
+              json(res, { ok: false, error: { message: err instanceof Error ? err.message : String(err) } })
+            }
+            return
+          }
+          case '/solution-explorer/move': {
+            const source = typeof payload.source === 'string' ? payload.source : ''
+            const targetDir = typeof payload.targetDir === 'string' ? payload.targetDir : ''
+            if (!root || !source || !targetDir) { json(res, { ok: false, error: { message: 'root, source and targetDir required' } }); return }
+            try {
+              const sourcePath = pathModule.resolve(root, source)
+              // An empty targetDir means the workspace root itself.
+              const targetBase = targetDir ? pathModule.resolve(root, targetDir) : pathModule.resolve(root)
+              if (!ensureInside(root, source) || (targetDir && !ensureInside(root, targetDir))) {
+                json(res, { ok: false, error: { message: 'path traversal denied' } }); return
+              }
+              if (targetBase === sourcePath || targetBase.startsWith(sourcePath + pathModule.sep)) {
+                json(res, { ok: false, error: { message: 'cannot move into itself' } }); return
+              }
+              const dest = await autoRename(pathModule.join(targetBase, pathModule.basename(sourcePath)))
+              await movePath(sourcePath, dest)
+              json(res, { ok: true, value: { path: pathModule.relative(root, dest) } })
+            } catch (err) {
+              json(res, { ok: false, error: { message: err instanceof Error ? err.message : String(err) } })
+            }
+            return
+          }
+          case '/solution-explorer/upload': {
+            const target = typeof payload.path === 'string' ? payload.path : ''
+            const content = typeof payload.content === 'string' ? payload.content : ''
+            const binary = payload.binary === true
+            if (!root || !target) { json(res, { ok: false, error: { message: 'root and path required' } }); return }
+            // ~50MB binary cap; base64 inflates by ~4/3.
+            if (content.length > 70 * 1024 * 1024) { json(res, { ok: false, error: { message: 'file too large (max 50MB)' } }); return }
+            try {
+              if (!ensureInside(root, target)) { json(res, { ok: false, error: { message: 'path traversal denied' } }); return }
+              const fullPath = await autoRename(pathModule.resolve(root, target))
+              const dir = pathModule.dirname(fullPath)
+              await fsp.mkdir(dir, { recursive: true })
+              await fsp.writeFile(fullPath, binary ? Buffer.from(content, 'base64') : content, binary ? undefined : 'utf-8')
+              json(res, { ok: true, value: { path: pathModule.relative(root, fullPath) } })
+            } catch (err) {
+              json(res, { ok: false, error: { message: err instanceof Error ? err.message : String(err) } })
+            }
+            return
+          }
+          case '/solution-explorer/create': {
+            const target = typeof payload.path === 'string' ? payload.path : ''
+            const type = payload.type === 'dir' ? 'dir' : 'file'
+            if (!root || !target) { json(res, { ok: false, error: { message: 'root and path required' } }); return }
+            try {
+              if (!ensureInside(root, target)) { json(res, { ok: false, error: { message: 'path traversal denied' } }); return }
+              const fullPath = pathModule.resolve(root, target)
+              if (type === 'dir') {
+                await fsp.mkdir(fullPath, { recursive: false })
+              } else {
+                const dir = pathModule.dirname(fullPath)
+                const resolvedRoot = pathModule.resolve(root)
+                if (dir !== resolvedRoot && !dir.startsWith(resolvedRoot + pathModule.sep)) {
+                  json(res, { ok: false, error: { message: 'path traversal denied' } }); return
+                }
+                await fsp.writeFile(fullPath, '', { flag: 'wx' })
+              }
+              json(res, { ok: true, value: { path: target } })
+            } catch (err: any) {
+              const msg = err?.code === 'EEXIST' ? '已存在同名文件或文件夹' : (err instanceof Error ? err.message : String(err))
+              json(res, { ok: false, error: { message: msg } })
             }
             return
           }
