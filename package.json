@@ -73,6 +73,11 @@
     "cordis.patch.yml"
   ],
   "license": "MIT",
+  "author": "xiaoksio",
+  "homepage": "https://github.com/xiaoksio/dsh-solution-explorer",
+  "bugs": {
+    "url": "https://github.com/xiaoksio/dsh-solution-explorer/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/xiaoksio/dsh-solution-explorer.git"
