@@ -1,0 +1,14 @@
+# Build output
+lib/
+dist/
+*.tsbuildinfo
+
+# Dependencies
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# pnpm local store (pnpm v11 project-local default)
+.pnpm-store/
