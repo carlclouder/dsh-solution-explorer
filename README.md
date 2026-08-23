@@ -2,6 +2,10 @@
 
 [English](README.md) | [中文](README.zh.md)
 
+[![npm](https://img.shields.io/npm/v/dsh-solution-explorer)](https://www.npmjs.com/package/dsh-solution-explorer)
+[![npm downloads](https://img.shields.io/npm/dm/dsh-solution-explorer)](https://www.npmjs.com/package/dsh-solution-explorer)
+[![GitHub stars](https://img.shields.io/github/stars/xiaoksio/dsh-solution-explorer)](https://github.com/xiaoksio/dsh-solution-explorer)
+
 Right-sidebar plugin for the DSH Web GUI: a VS Code-style file explorer plus
 source control management (git status, stage/unstage/discard, commit, diff) and
 a text editor with save, all in a dedicated right column of the three-column
@@ -26,6 +30,12 @@ layout.
 - **i18n** — English and Chinese, follows the browser language.
 - **Dark theme** — matches the DSH Web UI tokens.
 
+## Screenshots
+
+| File Explorer | Source Control | Search |
+| --- | --- | --- |
+| ![File Explorer](assets/screenshot-1-file-explorer.png) | ![Source Control](assets/screenshot-2-source-control.png) | ![Search](assets/screenshot-3-search.png) |
+
 ## Installation
 
 ### From a local checkout
@@ -40,6 +50,12 @@ dsh plugin --profile web add /path/to/dsh-solution-explorer
 
 ```sh
 dsh plugin --profile web add dsh-solution-explorer
+```
+
+### From a GitHub Release (prebuilt tarball)
+
+```sh
+dsh plugin --profile web add https://github.com/xiaoksio/dsh-solution-explorer/releases/latest/download/dsh-solution-explorer-0.1.0.tgz
 ```
 
 After installing, reload the Web UI. The explorer panel appears as its own right
@@ -63,6 +79,8 @@ pnpm install
 pnpm build    # tsc declarations + tsdown bundles (lib/index.js, lib/client.js)
 pnpm watch    # rebuild on change
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the submission guide.
 
 `pnpm install` also runs the `prepare` script, so a git-based install
 (`dsh plugin add github:xiaoksio/dsh-solution-explorer`) builds `lib/` on
