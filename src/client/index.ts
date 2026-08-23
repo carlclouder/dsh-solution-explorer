@@ -443,12 +443,14 @@ export function apply(ctx: ClientContext): void {
     }
     function buildSCMItem(item: any, section: 'staged' | 'changes'): string {
       const statusChar = item.status
+      // Escape single quotes for the inline JS path; git porcelain paths use forward slashes.
+      const pathJs = item.path.replace(/'/g, "\\'")
       const action = section === 'staged'
-        ? `<button class="sol-exp-scm-action-btn" onclick="window.__solExpUnstage(['${item.path.replace(/'/g, "\\'")}'])" title="${t('scm.unstage')}">◦</button>`
-        : `<button class="sol-exp-scm-action-btn" onclick="window.__solExpStage(['${item.path.replace(/'/g, "\\'")}'])" title="${t('scm.stage')}">+</button>
-           <button class="sol-exp-scm-action-btn" onclick="window.__solExpDiscard(['${item.path.replace(/'/g, "\\'")}'])" title="${t('scm.discard')}">✕</button>`
+        ? `<button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpUnstage(['${pathJs}'])" title="${t('scm.unstage')}">◦</button>`
+        : `<button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpStage(['${pathJs}'])" title="${t('scm.stage')}">+</button>
+           <button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpDiscard(['${pathJs}'])" title="${t('scm.discard')}">✕</button>`
       return `
-        <div class="sol-exp-scm-item">
+        <div class="sol-exp-scm-item" title="${t('file.open')}" onclick="window.__solExpSelectFile('${pathJs}')">
           <span class="sol-exp-scm-status sol-exp-git-${statusChar === '?' ? '\\?' : statusChar}">${statusChar}</span>
           <span class="sol-exp-scm-path">${escapeHtml(item.path)}</span>
           <span class="sol-exp-scm-actions">${action}</span>
