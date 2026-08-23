@@ -12,3 +12,6 @@ Thumbs.db
 
 # pnpm local store (pnpm v11 project-local default)
 .pnpm-store/
+
+# Release tarballs
+*.tgz
