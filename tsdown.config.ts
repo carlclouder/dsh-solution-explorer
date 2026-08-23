@@ -47,8 +47,12 @@ export default defineConfig([
     fixedExtension: false,
     dts: false,
     clean: false,
-    // The client half imports only its own relative modules; the loader table
-    // needs nothing external, so everything inlines.
+    // Bundle third-party deps (highlight.js) into the artifact; keep react
+    // external — the DSH web shell seeds it through the module table.
+    deps: {
+      neverBundle: (specifier: string) => specifier === 'react' || specifier.startsWith('react/'),
+      alwaysBundle: (specifier: string) => specifier !== 'react' && !specifier.startsWith('react/'),
+    },
     outputOptions: {
       entryFileNames: 'client.js',
       banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(PKG_ID)}, factory: (require) => {`,

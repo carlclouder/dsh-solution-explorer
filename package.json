@@ -90,5 +90,8 @@
     "file-explorer",
     "source-control",
     "git"
-  ]
+  ],
+  "dependencies": {
+    "highlight.js": "^11.12.0"
+  }
 }
