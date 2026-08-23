@@ -327,14 +327,21 @@ export function apply(ctx: ClientContext): void {
         if (searchResults.length === 0) { contentHTML = `<div class="sol-exp-empty">${document.documentElement.lang?.startsWith('zh') ? '无匹配文件' : 'No matching files'}</div>` }
         else {
           contentHTML = '<div class="sol-exp-search-results">' +
-            searchResults.map((r: any) => `
+            searchResults.map((r: any) => {
+              // Escape single quotes AND backslashes: Windows paths would
+              // otherwise lose separators when the inline JS parses them.
+              const pathJs = r.path.replace(/'/g, "\\'").replace(/\\/g, "\\\\")
+              return `
               <div class="sol-exp-search-item ${selectedPath === r.path ? 'sol-exp-selected' : ''}"
-                   onclick="window.__solExpSelectFile('${r.path.replace(/'/g, "\\'")}')">
+                   onclick="window.__solExpSelectFile('${pathJs}')"
+                   data-sol-exp-path="${escapeHtml(r.path)}"
+                   oncontextmenu="event.preventDefault();window.__solExpContextMenu(this.dataset.solExpPath||'', event.pageX, event.pageY)">
                 <span class="sol-exp-icon">${r.type === 'directory' ? '📁' : '📄'}</span>
                 <span class="sol-exp-name">${escapeHtml(r.name)}</span>
                 <span class="sol-exp-path">${escapeHtml(r.path)}</span>
               </div>
-            `).join('') + '</div>'
+            `
+            }).join('') + '</div>'
         }
       } else { contentHTML = `<div class="sol-exp-empty">${document.documentElement.lang?.startsWith('zh') ? '输入关键词搜索文件' : 'Type to search files'}</div>` }
       return `
@@ -351,20 +358,9 @@ export function apply(ctx: ClientContext): void {
       let contentHTML = ''
       if (loading) { contentHTML = `<div class="sol-exp-loading">${t('loading')}</div>` }
       else if (error) { contentHTML = `<div class="sol-exp-error">${error}</div>` }
-      else if (searching) {
-        if (searchResults.length === 0) { contentHTML = `<div class="sol-exp-empty">${document.documentElement.lang?.startsWith('zh') ? '无匹配文件' : 'No matching files'}</div>` }
-        else {
-          contentHTML = '<div class="sol-exp-search-results">' +
-            searchResults.map((r: any) => `
-              <div class="sol-exp-search-item ${selectedPath === r.path ? 'sol-exp-selected' : ''}"
-                   onclick="window.__solExpSelectFile('${r.path.replace(/'/g, "\\'")}')">
-                <span class="sol-exp-icon">${r.type === 'directory' ? '📁' : '📄'}</span>
-                <span class="sol-exp-name">${escapeHtml(r.name)}</span>
-                <span class="sol-exp-path">${escapeHtml(r.path)}</span>
-              </div>
-            `).join('') + '</div>'
-        }
-      } else if (treeState) { contentHTML = '<div class="sol-exp-tree">' + (treeState.children || []).map((c: any) => renderTreeNode(c, 0)).join('') + '</div>' }
+      // Search results belong to the Search tab only; the explorer tab always
+      // shows the file tree (or the empty hint).
+      else if (treeState) { contentHTML = '<div class="sol-exp-tree">' + (treeState.children || []).map((c: any) => renderTreeNode(c, 0)).join('') + '</div>' }
       else { contentHTML = `<div class="sol-exp-empty">${emptyText}</div>` }
       return `
         <div class="sol-exp-header">
