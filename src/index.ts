@@ -300,8 +300,9 @@ export function apply(ctx: Context, config: Config = {}): void {
             const file = query.file || ''
             if (!root || !file) { json(res, { ok: false, error: { message: 'root and file required' } }); return }
             try {
+              const resolvedRoot = pathModule.resolve(root)
               const fullPath = pathModule.resolve(root, file)
-              if (!fullPath.startsWith(pathModule.resolve(root))) {
+              if (fullPath !== resolvedRoot && !fullPath.startsWith(resolvedRoot + pathModule.sep)) {
                 json(res, { ok: false, error: { message: 'path traversal denied' } }); return
               }
               const stat = await fsp.stat(fullPath)
@@ -459,8 +460,9 @@ export function apply(ctx: Context, config: Config = {}): void {
             const target = typeof payload.path === 'string' ? payload.path : ''
             if (!root || !target) { json(res, { ok: false, error: { message: 'root and path required' } }); return }
             try {
+              const resolvedRoot = pathModule.resolve(root)
               const fullPath = pathModule.resolve(root, target)
-              if (!fullPath.startsWith(pathModule.resolve(root))) {
+              if (fullPath !== resolvedRoot && !fullPath.startsWith(resolvedRoot + pathModule.sep)) {
                 json(res, { ok: false, error: { message: 'path traversal denied' } }); return
               }
               await fsp.rm(fullPath, { recursive: true, force: true })

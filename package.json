@@ -1,7 +1,7 @@
 {
   "name": "dsh-solution-explorer",
-  "description": "DSH Web GUI right sidebar: VS Code-style file explorer plus source control (git status, stage/unstage/discard, commit, diff) and a file editor with save.",
-  "version": "0.1.0",
+  "description": "DSH Web GUI right sidebar: VS Code-style file explorer plus source control (git status, stage/unstage/discard, commit, diff, multi-repo switch) with an editable full-file diff view, a syntax-highlighted editor (15 languages), file operations (new/move/copy/delete), and save.",
+  "version": "0.2.0",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

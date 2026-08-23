@@ -1,5 +1,7 @@
 # dsh-solution-explorer
 
+![dsh-solution-explorer banner](assets/banner.png)
+
 [English](README.md) | [中文](README.zh.md)
 
 [![npm](https://img.shields.io/npm/v/dsh-solution-explorer)](https://www.npmjs.com/package/dsh-solution-explorer)
@@ -17,24 +19,33 @@ layout.
   with expand/collapse, VS Code-style git status markers (M/A/D/R/?), and
   directory "modified" indicators.
 - **Source Control** — staged / unstaged / untracked change lists with
-  stage / unstage / discard (per-file or all), commit with a message, diff and
-  recent commit history, branch and ahead/behind info. Bulk actions
-  (stage all / unstage all / discard all) live in the section headers, and
-  discard all asks for confirmation.
+  stage / unstage / discard (per-file or all), commit with a message, recent
+  commit history (infinite scroll) and branch info. **Diff view**: full-file
+  side-by-side compare with an editable right column (Enter splits lines,
+  backspace/delete merges, NBSP placeholders), Ctrl+S to save. **Multi-repo
+  support**: auto-discovers git repositories under the workspace and lets you
+  switch between them; the SCM panel follows the selected repo. **Split panes**:
+  drag the divider between changes and repository to resize, history fills the
+  bottom. Bulk actions live in the section headers; discard all asks for
+  confirmation.
+- **Syntax highlighting** — editor and diff views colorize 15 languages
+  (TS/JS/Python/JSON/Markdown/...) with a GitHub Dark theme; the editor
+  re-highlights live while typing, lightweight.
 - **File Search** — live name search across the workspace.
 - **File Editor** — open any text file in an "Edit" tab of the conversation
   view, edit, and save (button or Ctrl+S); binary files are detected and
   refused instead of corrupted.
-- **File operations** — context menu with delete (confirm dialog) and copy
-  relative / absolute path.
+- **File operations** — context menu with new file/folder, delete (confirm
+  dialog), copy / cut / paste, copy relative / absolute path; drag files within
+  the tree, drag files in from the OS, multi-select bulk actions.
 - **i18n** — English and Chinese, follows the browser language.
 - **Dark theme** — matches the DSH Web UI tokens.
 
 ## Screenshots
 
-| File Explorer | Source Control | Search |
+| File Explorer | Source Control | Diff |
 | --- | --- | --- |
-| ![File Explorer](assets/screenshot-1-file-explorer.png) | ![Source Control](assets/screenshot-2-source-control.png) | ![Search](assets/screenshot-3-search.png) |
+| ![File Explorer](assets/screenshot-1-file-explorer.png) | ![Source Control](assets/screenshot-2-source-control.png) | ![Diff](assets/screenshot-3-diff.png) |
 
 ## Installation
 
@@ -94,8 +105,9 @@ The plugin is a single npm package with two halves, both declared in
 - **Host half** (`src/index.ts`, exports `.` → `lib/index.js`): runs in the
   dsh host process and serves the workspace-gated filesystem and git API over
   HTTP routes under `/solution-explorer/*` (`tree`, `read`, `write`,
-  `delete`, `search`, `git-status`, `git-diff`, `git-log`,
-  `git-stage`, `git-unstage`, `git-discard`, `git-commit`). All routes
+  `delete`, `search`, `git-repos`, `git-status`, `git-diff`, `git-log`,
+  `git-stage`, `git-unstage`, `git-discard`, `git-commit`, `paste`, `move`,
+  `upload`, `create`). All routes
   resolve paths strictly inside the session workspace root. It also announces
   itself in the system prompt so the agent knows what the panel can do.
 - **Browser half** (`src/client/index.ts`, exports `./client` →
