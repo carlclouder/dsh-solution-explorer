@@ -337,6 +337,29 @@ export function apply(ctx: Context, config: Config = {}): void {
             }
             return
           }
+                    case '/solution-explorer/git-repos': {
+            const root = query.root || ''
+            if (!root) { json(res, { ok: false, error: { message: 'root required' } }); return }
+            const results: { path: string; name: string; branch: string }[] = []
+            const tryRepo = async (dir: string, name: string) => {
+              if (await fsp.stat(pathModule.join(dir, '.git')).catch(() => null) !== null) {
+                const b = git(['rev-parse', '--abbrev-ref', 'HEAD'], dir)
+                results.push({ path: dir, name, branch: b.ok ? b.stdout.trimEnd() : 'HEAD' })
+              }
+            }
+            const resolvedRoot = pathModule.resolve(root)
+            await tryRepo(resolvedRoot, pathModule.basename(resolvedRoot))
+            try {
+              const entries = await fsp.readdir(resolvedRoot, { withFileTypes: true })
+              for (const e of entries) {
+                if (e.isDirectory() && !e.name.startsWith('.')) {
+                  await tryRepo(pathModule.resolve(resolvedRoot, e.name), e.name)
+                }
+              }
+            } catch { /* ignore */ }
+            json(res, { ok: true, value: results })
+            return
+          }
           case '/solution-explorer/git-status': {
             const root = query.root || ''
             if (!root) { json(res, { ok: false, error: { message: 'root required' } }); return }
@@ -371,7 +394,12 @@ export function apply(ctx: Context, config: Config = {}): void {
           case '/solution-explorer/git-log': {
             const root = query.root || ''
             if (!root) { json(res, { ok: false, error: { message: 'root required' } }); return }
-            const result = git(['log', '--max-count=20', '--format=%H|%h|%an|%ae|%at|%s'], root)
+            const count = Math.min(parseInt(query.count || '20', 10), 100)
+            const skip = Math.max(parseInt(query.skip || '0', 10), 0)
+                        const logArgs = ['log', `--max-count=${count}`]
+            if (skip > 0) logArgs.push(`--skip=${skip}`)
+            logArgs.push('--format=%H|%h|%an|%ae|%at|%s')
+            const result = git(logArgs, root)
             if (!result.ok) { json(res, { ok: false, error: { message: result.error } }); return }
             const commits = result.stdout.split('\n').filter(Boolean).map((line: string) => {
               const parts = line.split('|')

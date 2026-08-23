@@ -69,6 +69,9 @@ declare global {
     __solExpSearch?: (query: string) => void
 
     __solExpRefreshSCM?: () => void
+    __solExpCommitsScroll?: (evt: Event) => void
+    __solExpScmDividerDown?: (evt: PointerEvent) => void
+    __solExpSelectRepo?: (path: string) => void
 
     __solExpCommitMsg?: (msg: string) => void
 
@@ -186,7 +189,7 @@ declare global {
 
 .sol-exp-git-R { color:#4ec9b0; } .sol-exp-git-q { color:#6e6e6e; }
 
-.sol-exp-scm-section { border-bottom:1px solid var(--dsw-alias-border-l1,#333); }
+.sol-exp-scm-section { }
 
 .sol-exp-scm-section-header { display:flex; align-items:center; gap:4px; padding:8px 12px; cursor:pointer; font-size:12px; font-weight:600; color:var(--dsw-alias-label-secondary,#969696); }
 
@@ -242,9 +245,9 @@ declare global {
 
 .sol-exp-commit-input::placeholder { color:var(--dsw-alias-label-tertiary,#6e6e6e); }
 
-.sol-exp-commit-row { display:flex; align-items:center; justify-content:center; gap:8px; margin-top:6px; }
+.sol-exp-commit-row { display:block; margin-top:6px; }
 
-.sol-exp-commit-btn { padding:4px 14px; border:none; border-radius:999px; background:var(--dsw-alias-button-info-fill,#3964fe); color:#fff; font-size:13px; font-weight:500; cursor:pointer; line-height:20px; transition:background-color 120ms ease; }
+.sol-exp-commit-btn { width:100%; padding:5px 0; border:none; border-radius:6px; background:var(--dsw-alias-button-info-fill,#3964fe); color:#fff; font-size:13px; font-weight:500; cursor:pointer; line-height:20px; transition:background-color 120ms ease; }
 
 .sol-exp-commit-btn:hover:not(:disabled) { background:var(--dsw-alias-button-info-hover,#679efe); }
 
@@ -285,6 +288,9 @@ declare global {
 .sol-exp-activity-btn.active { color:var(--dsw-alias-label-primary,#d4d4d4); background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.06)); }
 
 .sol-exp-resize-handle { position:absolute; top:0; bottom:0; width:8px; margin-left:-4px; cursor:col-resize; z-index:2; touch-action:none; background:transparent; }
+.sol-exp-resize-handle::after { content:''; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:3px; height:44px; border-radius:2px; background:var(--dsw-alias-button-floating-fill,#0078d4); opacity:0; transition:opacity .12s ease; }
+.sol-exp-resize-handle:hover::after, .sol-exp-resize-handle[data-dragging='true']::after { opacity:1; }
+.sol-exp-resize-handle[data-overlapped='true'] { pointer-events:none; }
 
 .sol-exp-main { flex:1; min-width:0; display:flex; flex-direction:column; }
 
@@ -344,6 +350,27 @@ declare global {
 .sol-exp-hl .hljs-addition { color: #aff5b4; background-color: #033a16; }
 .sol-exp-hl .hljs-deletion { color: #ffdcd7; background-color: #67060c; }
 .sol-exp-hl .hljs-char.escape_, .sol-exp-hl .hljs-link, .sol-exp-hl .hljs-params, .sol-exp-hl .hljs-property, .sol-exp-hl .hljs-punctuation, .sol-exp-hl .hljs-tag { }
+.sol-exp-scm-section.collapsed > *:not(.sol-exp-scm-section-header) { display:none; }
+.sol-exp-scm-section.collapsed .sol-exp-scm-section-header svg { transform: rotate(0deg) !important; }
+.sol-exp-branch-pill { display:inline-flex; align-items:center; gap:4px; padding:1px 8px; border-radius:999px; background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.08)); font-size:11px; font-weight:500; color:var(--dsw-alias-label-primary,#d4d4d4); }
+.sol-exp-commit-item { display:flex; align-items:center; gap:6px; padding:3px 4px; border-radius:6px; cursor:pointer; }
+.sol-exp-commit-item:hover { background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.06)); }
+.sol-exp-commit-hash { font-family:monospace; font-size:11px; color:var(--dsw-alias-label-tertiary,#6e6e6e); flex:none; }
+.sol-exp-commit-msg { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; color:var(--dsw-alias-label-primary,#d4d4d4); }
+.sol-exp-commit-date { flex:none; font-size:11px; color:var(--dsw-alias-label-tertiary,#6e6e6e); }
+.sol-exp-scm-status { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:4px; font-size:11px; font-weight:700; background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.06)); }
+.sol-exp-scm-split { flex:1; min-height:0; height:100%; display:flex; flex-direction:column; }
+.sol-exp-scm-top { flex:1 1 55%; min-height:0; overflow-y:auto; }
+.sol-exp-scm-divider { flex:none; height:4px; cursor:row-resize; background:var(--dsw-alias-border-l1,#333); }
+.sol-exp-scm-divider:hover { background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.12)); }
+.sol-exp-scm-bottom { flex:1 1 45%; min-height:0; display:flex; flex-direction:column; }
+.sol-exp-scm-section[data-section="repository"] { flex:1; min-height:0; display:flex; flex-direction:column; }
+.sol-exp-repo-item { display:flex; align-items:center; gap:6px; padding:3px 8px; border-radius:6px; cursor:pointer; font-size:12px; }
+.sol-exp-repo-item:hover { background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.06)); }
+.sol-exp-repo-item.active { background:var(--dsw-alias-interactive-bg-active,rgba(0,120,212,0.2)); }
+.sol-exp-repo-icon { flex:none; color:var(--dsw-alias-state-business-primary,#58a6ff); }
+.sol-exp-repo-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--dsw-alias-label-primary,#d4d4d4); }
+.sol-exp-repo-branch { flex:none; font-size:11px; color:var(--dsw-alias-label-tertiary,#6e6e6e); }
 `;
 
 		export const inject = [
@@ -589,10 +616,16 @@ function _notifyDiffListeners() {
 				let dropTargetPath = null;
 
 				let gitStatus = null;
+				let repos = [];
+				let activeRepo = "";
+				const gitRoot = () => activeRepo || root;
 
 				let commitMessage = "";
 
 				let committing = false;
+				let commitsPage = 0;
+				let commitsAllLoaded = false;
+				let commitsLoading = false;
 
 				let gitChangesCount = 0;
 
@@ -646,7 +679,26 @@ function _notifyDiffListeners() {
 
 				}
 
-				async function loadGitStatus() {
+				async function loadRepos() {
+					if (!root) return;
+					try {
+						const result = await (await fetch(`/solution-explorer/git-repos?root=${encodeURIComponent(root)}`)).json();
+						if (result.ok && Array.isArray(result.value)) {
+							repos = result.value;
+							if (!activeRepo || !repos.some((r) => r.path === activeRepo)) {
+								activeRepo = repos[0]?.path || root;
+							}
+							render();
+						}
+					} catch (err) { console.error("Failed to load repos:", err); }
+				}
+				window.__solExpSelectRepo = (path) => {
+					if (!path || path === activeRepo) return;
+					activeRepo = path;
+					loadGitStatus();
+					loadRecentCommits();
+				};
+async function loadGitStatus() {
 
 					if (!root) return;
 
@@ -654,7 +706,7 @@ function _notifyDiffListeners() {
 
 					try {
 
-						const result = await (await fetch(`/solution-explorer/git-status?root=${encodeURIComponent(root)}`)).json();
+						const result = await (await fetch(`/solution-explorer/git-status?root=${encodeURIComponent(gitRoot())}`)).json();
 
 						if (result.ok) {
 
@@ -672,33 +724,56 @@ function _notifyDiffListeners() {
 
 				}
 
-				async function loadRecentCommits() {
-
+				function relTime(ts) {
+  const diff = Date.now() - (ts || 0);
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "刚刚";
+  if (m < 60) return m + " 分钟前";
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + " 小时前";
+  const d = Math.floor(h / 24);
+  if (d < 30) return d + " 天前";
+  return new Date(ts).toLocaleDateString();
+}
+async function loadRecentCommits() {
 					if (!root || !gitStatus || gitStatus.branch === "unknown") return;
-
-					try {
-
-						const result = await (await fetch(`/solution-explorer/git-log?root=${encodeURIComponent(root)}`)).json();
-
-						if (result.ok && result.value) {
-
-							const commitsList = document.getElementById("sol-exp-commits-list");
-
-							if (commitsList) if (result.value.length === 0) commitsList.textContent = t("scm.log.empty");
-
-							else commitsList.innerHTML = result.value.slice(0, 5).map((commit) => `<div style="margin-bottom:4px;cursor:pointer" title="${commit.message}"><span style="color:var(--dsw-alias-label-primary)">${commit.shortHash}</span> ${commit.message.substring(0, 50)}${commit.message.length > 50 ? "..." : ""}</div>`).join("");
-
-						}
-
-					} catch (err) {
-
-						console.error("Failed to load commits:", err);
-
-					}
-
+					commitsPage = 0;
+					commitsAllLoaded = false;
+					await loadCommitsPage();
 				}
-
-				async function doStage(files) {
+				async function loadCommitsPage() {
+					if (!root || commitsLoading || commitsAllLoaded) return;
+					commitsLoading = true;
+					try {
+						const url = `/solution-explorer/git-log?root=${encodeURIComponent(gitRoot())}&count=20&skip=${commitsPage * 20}`;
+						const result = await (await fetch(url)).json();
+						if (result.ok && result.value) {
+							const commitsList = document.getElementById("sol-exp-commits-list");
+							if (commitsList) {
+								if (commitsPage === 0 && result.value.length === 0) {
+									commitsList.textContent = t("scm.log.empty");
+									commitsAllLoaded = true;
+								} else {
+									const items = result.value.map((commit) => `<div class="sol-exp-commit-item" title="${commit.message.replace(/"/g, "&quot;")}"><span class="sol-exp-commit-hash">${commit.shortHash}</span><span class="sol-exp-commit-msg">${escapeHtml(commit.message.substring(0, 60))}${commit.message.length > 60 ? "..." : ""}</span><span class="sol-exp-commit-date">${relTime(commit.timestamp)}</span></div>`).join("");
+									if (commitsPage === 0) commitsList.innerHTML = items;
+									else commitsList.insertAdjacentHTML("beforeend", items);
+									commitsPage++;
+									if (result.value.length < 20) commitsAllLoaded = true;
+								}
+							}
+						}
+					} catch (err) {
+						console.error("Failed to load commits:", err);
+					}
+					commitsLoading = false;
+				}
+				window.__solExpCommitsScroll = (evt) => {
+					const el = evt.target as HTMLElement;
+					if (el && el.scrollTop + el.clientHeight >= el.scrollHeight - 40) {
+						loadCommitsPage();
+					}
+				};
+async function doStage(files) {
 
 					if (!root) return;
 
@@ -710,9 +785,8 @@ function _notifyDiffListeners() {
 
 						body: JSON.stringify({
 
-							root,
-
-							files
+							root: gitRoot(),
+														files
 
 						})
 
@@ -734,9 +808,8 @@ function _notifyDiffListeners() {
 
 						body: JSON.stringify({
 
-							root,
-
-							files
+							root: gitRoot(),
+														files
 
 						})
 
@@ -758,9 +831,8 @@ function _notifyDiffListeners() {
 
 						body: JSON.stringify({
 
-							root,
-
-							files
+							root: gitRoot(),
+														files
 
 						})
 
@@ -790,9 +862,8 @@ function _notifyDiffListeners() {
 
 							body: JSON.stringify({
 
-								root,
-
-								message: commitMessage.trim()
+								root: gitRoot(),
+															message: commitMessage.trim()
 
 							})
 
@@ -998,6 +1069,8 @@ function _notifyDiffListeners() {
 
           </div>
 
+
+
         </div>
 
         <div class="sol-exp-content">${contentHTML}</div>
@@ -1024,9 +1097,10 @@ function _notifyDiffListeners() {
 
 					if (!isRepo) return `<div class="sol-exp-content"><div class="sol-exp-empty">${t("scm.notRepo")}</div></div>`;
 
-					let sectionsHTML = "";
+					let topHTML = "";
+					let bottomHTML = "";
 
-					sectionsHTML += `
+					topHTML += `
 
         <div class="sol-exp-commit-box">
 
@@ -1038,13 +1112,15 @@ function _notifyDiffListeners() {
 
           </div>
 
+
+
         </div>
 
       `;
 
-					sectionsHTML += `
+					topHTML += `
 
-        <div class="sol-exp-scm-section">
+        <div class="sol-exp-scm-section" data-section="changes">
 
           <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('changes')"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4"/></svg>${t("scm.changes")}<span class="sol-exp-scm-header-actions">
 
@@ -1064,9 +1140,9 @@ function _notifyDiffListeners() {
 
       `;
 
-					if (staged.length > 0) sectionsHTML += `
+					if (staged.length > 0) topHTML += `
 
-          <div class="sol-exp-scm-section">
+          <div class="sol-exp-scm-section" data-section="staged">
 
             <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('staged')"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4"/></svg>${t("scm.staged")}<span class="sol-exp-scm-header-actions">
 
@@ -1080,19 +1156,19 @@ function _notifyDiffListeners() {
 
         `;
 
-					sectionsHTML += `
+					bottomHTML += `
 
-        <div class="sol-exp-scm-section">
+        <div class="sol-exp-scm-section" data-section="repository">
 
           <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('repository')"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4"/></svg>${t("scm.repository")}</div>
 
-          <div style="padding:4px 12px 8px 24px">
+          <div style="padding:4px 12px 8px 24px;flex:1;min-height:0;display:flex;flex-direction:column">
 
-            <div style="font-size:12px;color:var(--dsw-alias-label-secondary);margin-bottom:4px">${t("scm.repository.branch")}: <span style="color:var(--dsw-alias-label-primary)">${status?.branch || ""}</span></div>
+            ${repos.map((r) => `<div class="sol-exp-repo-item ${activeRepo === r.path ? "active" : ""}" onclick="window.__solExpSelectRepo('${r.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')"><span class="sol-exp-repo-icon">⑂</span><span class="sol-exp-repo-name">${r.name}</span><span class="sol-exp-repo-branch">${r.branch}</span></div>`).join("")}<div style="font-size:12px;color:var(--dsw-alias-label-secondary);margin-bottom:6px">${t("scm.repository.branch")}</div><span class="sol-exp-branch-pill">⑂ ${status?.branch || ""}</span>
 
             <div style="font-size:12px;color:var(--dsw-alias-label-secondary)">${t("scm.repository.commits")}</div>
 
-            <div id="sol-exp-commits-list" style="margin-top:4px;font-size:12px;color:var(--dsw-alias-label-tertiary)">Loading...</div>
+            <div id="sol-exp-commits-list" style="margin-top:6px;font-size:12px;color:var(--dsw-alias-label-tertiary);flex:1;min-height:0;overflow-y:auto" onscroll="window.__solExpCommitsScroll(event)">Loading...</div>
 
           </div>
 
@@ -1100,7 +1176,7 @@ function _notifyDiffListeners() {
 
       `;
 
-					return `<div class="sol-exp-content">${sectionsHTML}</div>`;
+					return `<div class="sol-exp-content"><div class="sol-exp-scm-split"><div class="sol-exp-scm-top" style="flex-basis:${scmSplit}%">${topHTML}</div><div class="sol-exp-scm-divider" onpointerdown="window.__solExpScmDividerDown(event)"></div><div class="sol-exp-scm-bottom" style="flex-basis:${100 - scmSplit}%">${bottomHTML}</div></div></div>`;
 
 				}
 
@@ -2108,6 +2184,29 @@ function _notifyDiffListeners() {
 
 				};
 
+				window.__solExpScmDividerDown = (e) => {
+				e.preventDefault();
+				const split = document.querySelector(".sol-exp-scm-split");
+				const top = document.querySelector(".sol-exp-scm-top") as HTMLElement;
+				const bottom = document.querySelector(".sol-exp-scm-bottom") as HTMLElement;
+				if (!split || !top || !bottom) return;
+				const rect = split.getBoundingClientRect();
+				const startY = e.clientY;
+				const startSplit = scmSplit;
+				const onMove = (me) => {
+				const dy = me.clientY - startY;
+				scmSplit = Math.min(85, Math.max(15, startSplit + (dy / rect.height) * 100));
+				top.style.flexBasis = scmSplit + "%";
+				bottom.style.flexBasis = (100 - scmSplit) + "%";
+				};
+				const onUp = () => {
+				document.removeEventListener("pointermove", onMove);
+				document.removeEventListener("pointerup", onUp);
+				};
+				document.addEventListener("pointermove", onMove);
+				document.addEventListener("pointerup", onUp);
+				};
+
 				const PANEL_WIDTH = 280;
 
 				const PANEL_MIN = 264;
@@ -2115,12 +2214,14 @@ function _notifyDiffListeners() {
 				const PANEL_MAX = 420;
 
 				let panelWidth = 0;
+				let scmSplit = 55;
 
 				let panelFrame = null;
 
 				let panelCol = null;
 
 				let shellTracks = [];
+				let lastGridApplied = "";
 
 				let styleObs = null;
 
@@ -2192,23 +2293,29 @@ function _notifyDiffListeners() {
 
 				function applyGrid() {
 
-					if (panelFrame === null || shellTracks.length !== 3) return;
+					if (panelFrame === null || shellTracks.length < 3) return;
 
-					panelFrame.style.gridTemplateColumns = `${shellTracks[0]} minmax(0, 1fr) ${shellTracks[2]} ${Math.round(panelWidth)}px`;
+					const value = `${shellTracks[0]} minmax(0, 1fr) ${shellTracks[2]} ${Math.round(panelWidth)}px`;
+					panelFrame.style.gridTemplateColumns = value;
+					lastGridApplied = value;
 
 					if (panelCol !== null) panelCol.style.visibility = panelWidth > 0 ? "visible" : "hidden";
 
 					if (resizeHandle !== null) {
-
 						const w = panelFrame.getBoundingClientRect().width;
-
-						resizeHandle.style.left = w - panelWidth - 3 + "px";
-
+						const handleLeft = w - panelWidth - 3;
+						// The panel grabber and the shell sidebar grabber both
+						// sit on 8px hit strips; once the chat column is
+						// squeezed away they overlap, and the later-appended
+						// panel grabber wins the pointer. Disable it there so
+						// the sidebar drag keeps full control.
+						const overlapped = handleLeft - 4 <= (trackPx(shellTracks[0]) || 0) + 4;
+						resizeHandle.style.left = handleLeft + "px";
+						resizeHandle.style.pointerEvents = overlapped ? "none" : "auto";
+						resizeHandle.dataset.overlapped = overlapped ? "true" : "false";
 					}
-
 				}
-
-				function mountColumn() {
+function mountColumn() {
 
 					if (panelFrame !== null) return;
 
@@ -2260,9 +2367,18 @@ function _notifyDiffListeners() {
 
 						const startWidth = panelWidth;
 
+						let dragging = false;
+
 						const onMove = (me) => {
 
 							const dx = me.clientX - startX;
+
+							// Ignore sub-threshold jitter: a bare click on the
+							// grabber (or a tiny pointer wobble) must not nudge
+							// the panel width the wrong way.
+							if (!dragging && Math.abs(dx) < 4) return;
+
+							dragging = true;
 
 							panelWidth = clampPanelWidth(startWidth - dx);
 
@@ -2290,31 +2406,20 @@ function _notifyDiffListeners() {
 
 					applyGrid();
 
-					const syncGrid = () => {
+										const syncGrid = () => {
 
 						if (panelFrame === null) return;
 
 						const inline = panelFrame.style.gridTemplateColumns;
-
-						if (inline === "") return;
+						if (inline === "" || inline === lastGridApplied) return;
 
 						const tracks = parseGridTracks(inline);
-
-						if (tracks.length >= 2 && tracks.length <= 3) {
-
-							shellTracks = tracks;
-
+						if (tracks.length >= 2) {
+							shellTracks = tracks.length >= 3 ? tracks.slice(0, 3) : [...tracks, "minmax(0, 1fr)"];
 							applyGrid();
-
-							return;
-
 						}
-
-						if (tracks.length === 4 && shellTracks.length === 3) return;
-
 					};
-
-					styleObs = new MutationObserver(syncGrid);
+styleObs = new MutationObserver(syncGrid);
 
 					styleObs.observe(frame, {
 
@@ -2384,11 +2489,15 @@ function _notifyDiffListeners() {
 
 					const newRoot = typeof cwd === "string" && cwd !== "" ? cwd : "";
 
+					// The snapshot fires on any session-list change; only a
+					// cwd switch may reset the panel width, otherwise a live
+					// session event during a drag would snap the panel back
+					// to its default (a "wrong direction" jump).
+					if (newRoot === root) return;
+
 					panelWidth = newRoot !== "" ? PANEL_WIDTH : 0;
 
-					if (newRoot !== "" && root === "") applyGrid();
-
-					if (newRoot === root) return;
+					if (panelFrame !== null) applyGrid();
 
 					root = newRoot;
 
@@ -2404,7 +2513,11 @@ function _notifyDiffListeners() {
 
 					if (root) {
 
+						activeRepo = "";
+
 						loadTree();
+
+						loadRepos();
 
 						loadGitStatus();
 
@@ -2556,7 +2669,7 @@ function _notifyDiffListeners() {
 
 					try {
 
-						const result = await (await fetch("/solution-explorer/git-diff?root=" + encodeURIComponent(root) + "&file=" + encodeURIComponent(path) + "&staged=" + staged)).json();
+						const result = await (await fetch("/solution-explorer/git-diff?root=" + encodeURIComponent(gitRoot()) + "&file=" + encodeURIComponent(path) + "&staged=" + staged)).json();
 
 						if (result.ok) { _diffContent = result.value.diff ?? result.value; _diffOldContent = result.value.oldContent ?? ""; _diffNewContent = result.value.newContent ?? "" }
 
@@ -2618,6 +2731,8 @@ function _notifyDiffListeners() {
 
 					if (panelFrame !== null && panelCol !== null) panelCol.remove();
 
+					resizeHandle?.remove();
+
 					[
 
 						"__solExpTab",
@@ -2634,7 +2749,7 @@ function _notifyDiffListeners() {
 
 						"__solExpSearch",
 
-						"__solExpRefreshSCM",
+						"__solExpRefreshSCM", "__solExpCommitsScroll", "__solExpScmDividerDown", "__solExpSelectRepo",
 
 						"__solExpCommitMsg",
 
