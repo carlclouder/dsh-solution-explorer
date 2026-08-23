@@ -17,7 +17,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
   interface SlotMap {}
 }
-
 declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
   interface ViewTab {
     id: string
@@ -1346,6 +1345,8 @@ declare global {
 			const [dirty, setDirty] = useState(false);
 			const diffRightRowRefs = useRef<(HTMLElement | null)[]>([]);
 			const [diffRows, setDiffRows] = useState(null);
+			const [diffDirty, setDiffDirty] = useState(false);
+			const [diffSaving, setDiffSaving] = useState(false);
 			const rowIdRef = useRef(0);
 			const focusDiffRowRef = useRef(-1);
 			const focusDiffOffsetRef = useRef(-1);
@@ -1442,6 +1443,7 @@ full.push({ id: rowIdRef.current++, old: "", new: newLines[j - 1], oldNum: null,
 j++;
 }
 setDiffRows({ path: dstate.diffPath, staged: dstate.diffStaged, rows: full });
+setDiffDirty(false);
 				}
 				const rows = (diffRows && diffRows.path === dstate.diffPath && diffRows.staged === dstate.diffStaged) ? diffRows.rows : [];
 				if (rows.length === 0) return h("div", { style: {
@@ -1480,8 +1482,10 @@ setDiffRows({ path: dstate.diffPath, staged: dstate.diffStaged, rows: full });
 					});
 					focusDiffRowRef.current = i + 1;
 					focusDiffOffsetRef.current = 0;
+					setDiffDirty(true);
 				};
 				const saveNew = async () => {
+					setDiffSaving(true);
 					let content = "";
 					let first = true;
 					rows.forEach((r, i) => {
@@ -1512,6 +1516,8 @@ setDiffRows({ path: dstate.diffPath, staged: dstate.diffStaged, rows: full });
 					} catch (err) {
 						alert("保存失败: " + (err.message || String(err)));
 					}
+					setDiffSaving(false);
+					setDiffDirty(false);
 				};
 				return h("div", { style: {
 					display: "flex",
@@ -1528,21 +1534,19 @@ setDiffRows({ path: dstate.diffPath, staged: dstate.diffStaged, rows: full });
 					display: "flex",
 					gap: "12px",
 					alignItems: "center"
-				} }, h("span", { style: { color: "#f14c4c" } }, document.documentElement.lang?.startsWith("zh") ? "变更前" : "Before"), h("span", { style: { color: "#4ec9b0" } }, document.documentElement.lang?.startsWith("zh") ? "变更后" : "After"), editable ? h("button", {
-					style: {
-						padding: "2px 10px",
-						border: "none",
-						borderRadius: "4px",
-						background: "var(--dsw-alias-state-business-primary,#0078d4)",
-						color: "#fff",
-						fontSize: "12px",
-						cursor: "pointer"
-					},
-					onClick: saveNew
-				}, "保存") : h("span", { style: {
+				} }, h("span", { style: { color: "#f14c4c" } }, document.documentElement.lang?.startsWith("zh") ? "变更前" : "Before"), h("span", { style: { color: "#4ec9b0" } }, document.documentElement.lang?.startsWith("zh") ? "变更后" : "After"), !editable ? h("span", { style: {
 					color: "var(--dsw-alias-label-tertiary)",
 					fontSize: "11px"
-				} }, "已暂存只读"))), h("div", { style: {
+				} }, "已暂存只读") : diffSaving ? h("span", { style: {
+					color: "var(--dsw-alias-label-secondary)",
+					fontSize: "11px"
+				} }, "保存中...") : diffDirty ? h("span", { style: {
+					color: "#e2b714",
+					fontSize: "11px"
+				} }, "未保存的更改") : h("span", { style: {
+					color: "#4ec9b0",
+					fontSize: "11px"
+				} }, "已保存"))), h("div", { style: {
 					flex: 1,
 					overflow: "auto",
 					display: "flex",
@@ -1552,6 +1556,7 @@ setDiffRows({ path: dstate.diffPath, staged: dstate.diffStaged, rows: full });
 				} }, h("div", { style: {
 					flex: "1 1 50%",
 					minWidth: 0,
+					overflowX: "auto",
 					borderRight: "1px solid var(--dsw-alias-border-l1)"
 				} }, rows.map((r) => h("div", { key: "o" + r.id, style: {
 					whiteSpace: "pre",
@@ -1560,7 +1565,8 @@ setDiffRows({ path: dstate.diffPath, staged: dstate.diffStaged, rows: full });
 					color: r.oldDel ? "#f14c4c" : "var(--dsw-alias-label-primary)"
 				} }, h("span", { style: numStyle }, r.oldNum === null ? "" : String(r.oldNum)), h("span", null, r.old === "" ? NBSP : r.old)))), h("div", { style: {
 					flex: "1 1 50%",
-					minWidth: 0
+					minWidth: 0,
+					overflowX: "auto"
 				} }, rows.map((r, i) => h("div", { key: "n" + r.id, style: {
 					whiteSpace: "pre",
 					padding: "0 8px",
@@ -1581,8 +1587,10 @@ setDiffRows({ path: dstate.diffPath, staged: dstate.diffStaged, rows: full });
 						minWidth: "2px"
 					},
 					spellCheck: false,
+					onInput: () => setDiffDirty(true),
 					ref: (el2) => { diffRightRowRefs.current[i] = el2; },
 					onKeyDown: (e) => {
+						if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); saveNew(); return }
 						if (e.key === "Enter") onRightEnter(e, i)
 						else if (e.key === "Backspace" || e.key === "Delete") {
 							e.preventDefault()
@@ -1601,6 +1609,7 @@ setDiffRows({ path: dstate.diffPath, staged: dstate.diffStaged, rows: full });
 									nr.splice(i, 1)
 									return { ...prev, rows: nr }
 								})
+								setDiffDirty(true)
 								focusDiffRowRef.current = i - 1
 								focusDiffOffsetRef.current = (rows[i - 1].new || "").length
 								return
@@ -1612,6 +1621,7 @@ setDiffRows({ path: dstate.diffPath, staged: dstate.diffStaged, rows: full });
 									nr.splice(i + 1, 1)
 									return { ...prev, rows: nr }
 								})
+								setDiffDirty(true)
 								focusDiffRowRef.current = i
 								focusDiffOffsetRef.current = (rows[i].new || "").length
 								return
@@ -1673,25 +1683,10 @@ const getState = window.__solExpGetEditorState;
 				alignItems: "center",
 				gap: "8px",
 				fontSize: "12px"
-			} }, h("span", { style: { color: "var(--dsw-alias-label-secondary)" } }, file), h("span", { style: {
+			} }, h("span", { style: { color: "var(--dsw-alias-label-secondary)" } }, file)), h("span", { style: {
 				color: statusColor,
 				fontSize: "11px"
-			} }, statusText)), h("button", {
-				style: {
-					padding: "2px 8px",
-					border: "none",
-					borderRadius: "4px",
-					background: "var(--dsw-alias-bg-modifier)",
-					color: "#fff",
-					cursor: "pointer",
-					fontSize: "12px"
-				},
-				onClick: () => {
-					window.__solExpSaveFile?.();
-					setDirty(false);
-				},
-				disabled: saving || !dirty
-			}, saving ? t("editor.saving") : t("editor.save"))), h("div", { style: {
+			} }, statusText)), h("div", { style: {
 				flex: 1,
 				minHeight: 0,
 				display: "flex"
@@ -1716,6 +1711,7 @@ const getState = window.__solExpGetEditorState;
 				ref: textareaRef,
 				style: {
 					flex: 1,
+					minHeight: 0,
 					width: "100%",
 					padding: "8px 12px",
 					border: "none",
@@ -1726,7 +1722,8 @@ const getState = window.__solExpGetEditorState;
 					lineHeight: "1.5",
 					outline: "none",
 					resize: "none",
-					tabSize: 2
+					tabSize: 2,
+					overflow: "auto"
 				},
 				defaultValue: st.editorContent ?? "",
 				onInput: (e) => {
