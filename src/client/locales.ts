@@ -77,6 +77,58 @@ const zh = {
   'scm.repository': '存储库',
   'scm.repository.branch': '分支',
   'scm.repository.commits': '最近提交',
+
+  // Git init
+  'scm.init.button': '初始化 Git 仓库',
+  'scm.init.confirm': '确定在此目录初始化 Git 仓库？',
+  'scm.init.done': 'Git 仓库初始化成功',
+
+  // Sync
+  'scm.sync.fetch': '抓取',
+  'scm.sync.pull': '拉取',
+  'scm.sync.push': '推送',
+  'scm.sync.sync': '同步',
+  'scm.sync.pullConfirm': '确定拉取远程更改？',
+  'scm.sync.pushConfirm': '确定推送到远程？此操作会公开你的本地提交。',
+  'scm.sync.syncConfirm': '确定同步（先拉取再推送）？',
+  'scm.sync.done': '操作完成',
+  'scm.sync.upToDate': '已是最新',
+  'scm.sync.noRemote': '此仓库没有配置远程仓库，请先添加远程。',
+
+  // Remote
+  'scm.remote.title': '远程仓库',
+  'scm.remote.none': '没有配置远程仓库',
+  'scm.remote.add': '添加远程',
+  'scm.remote.name': '名称',
+  'scm.remote.url': 'URL',
+  'scm.remote.addBtn': '添加',
+  'scm.remote.remove': '删除',
+  'scm.remote.setUrl': '修改地址',
+  'scm.remote.removeConfirm': '确定删除远程仓库 {name}？',
+  'scm.remote.invalidUrl': '远程 URL 格式无效',
+
+  // Branch
+  'scm.branch.title': '分支',
+  'scm.branch.local': '本地分支',
+  'scm.branch.remote': '远程分支',
+  'scm.branch.create': '新建分支',
+  'scm.branch.rename': '重命名',
+  'scm.branch.delete': '删除',
+  'scm.branch.merge': '合并',
+  'scm.branch.publish': '发布',
+  'scm.branch.name': '分支名',
+  'scm.branch.from': '来源（可选）',
+  'scm.branch.newName': '新名称',
+  'scm.branch.createBtn': '创建',
+  'scm.branch.checkout': '切换',
+  'scm.branch.deleteConfirm': '确定删除分支 {name}？',
+  'scm.branch.mergeConfirm': '确定将 {name} 合并到当前分支？',
+  'scm.branch.publishConfirm': '确定发布分支 {name} 到 origin？',
+
+  // Merge conflicts
+  'scm.merge.changes': '合并冲突',
+  'scm.merge.none': '没有冲突',
+  'scm.branch.tags': '标记',
 }
 
 const en: Record<SolutionExplorerKey, string> = {
@@ -146,6 +198,53 @@ const en: Record<SolutionExplorerKey, string> = {
   'scm.repository': 'Repository',
   'scm.repository.branch': 'Branch',
   'scm.repository.commits': 'Recent Commits',
+
+  'scm.init.button': 'Initialize Git Repository',
+  'scm.init.confirm': 'Initialize a git repository in this directory?',
+  'scm.init.done': 'Git repository initialized',
+
+  'scm.sync.fetch': 'Fetch',
+  'scm.sync.pull': 'Pull',
+  'scm.sync.push': 'Push',
+  'scm.sync.sync': 'Sync',
+  'scm.sync.pullConfirm': 'Pull remote changes?',
+  'scm.sync.pushConfirm': 'Push to remote? This publishes your local commits.',
+  'scm.sync.syncConfirm': 'Sync (pull then push)?',
+  'scm.sync.done': 'Operation completed',
+  'scm.sync.upToDate': 'Up to date',
+  'scm.sync.noRemote': 'This repository has no remote. Add one first.',
+
+  'scm.remote.title': 'Remotes',
+  'scm.remote.none': 'No remotes configured',
+  'scm.remote.add': 'Add remote',
+  'scm.remote.name': 'Name',
+  'scm.remote.url': 'URL',
+  'scm.remote.addBtn': 'Add',
+  'scm.remote.remove': 'Remove',
+  'scm.remote.setUrl': 'Set URL',
+  'scm.remote.removeConfirm': 'Remove remote {name}?',
+  'scm.remote.invalidUrl': 'Invalid remote URL',
+
+  'scm.branch.title': 'Branches',
+  'scm.branch.local': 'Local Branches',
+  'scm.branch.remote': 'Remote Branches',
+  'scm.branch.create': 'New Branch',
+  'scm.branch.rename': 'Rename',
+  'scm.branch.delete': 'Delete',
+  'scm.branch.merge': 'Merge',
+  'scm.branch.publish': 'Publish',
+  'scm.branch.name': 'Branch name',
+  'scm.branch.from': 'From (optional)',
+  'scm.branch.newName': 'New name',
+  'scm.branch.createBtn': 'Create',
+  'scm.branch.checkout': 'Checkout',
+  'scm.branch.deleteConfirm': 'Delete branch {name}?',
+  'scm.branch.mergeConfirm': 'Merge {name} into the current branch?',
+  'scm.branch.publishConfirm': 'Publish branch {name} to origin?',
+
+  'scm.merge.changes': 'Merge Changes',
+  'scm.merge.none': 'No conflicts',
+  'scm.branch.tags': 'Tags',
 }
 
 export const dictionaries = { zh, en }

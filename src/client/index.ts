@@ -72,6 +72,28 @@ declare global {
     __solExpCommitsScroll?: (evt: Event) => void
     __solExpScmDividerDown?: (evt: PointerEvent) => void
     __solExpSelectRepo?: (path: string) => void
+    __solExpCommitDetail?: (hash: string) => Promise<void>
+    __solExpCommitCheckout?: (hash: string) => Promise<void>
+    __solExpGitInit?: () => Promise<void>
+    __solExpFetch?: () => Promise<void>
+    __solExpPull?: () => Promise<void>
+    __solExpPush?: () => Promise<void>
+    __solExpSync?: () => Promise<void>
+    __solExpRemotePanel?: () => Promise<void>
+    __solExpRemoteName?: (v: string) => void
+    __solExpRemoteUrl?: (v: string) => void
+    __solExpRemoteAdd?: () => Promise<void>
+    __solExpRemoteRemove?: (name: string) => Promise<void>
+    __solExpRemoteSetUrl?: (name: string) => Promise<void>
+    __solExpBranchPanel?: () => Promise<void>
+    __solExpBranchName?: (v: string) => void
+    __solExpBranchFrom?: (v: string) => void
+    __solExpBranchCreate?: () => Promise<void>
+    __solExpBranchCheckout?: (name: string, isRemote?: boolean) => Promise<void>
+    __solExpBranchDelete?: (name: string) => Promise<void>
+    __solExpBranchRename?: (name: string) => Promise<void>
+    __solExpBranchMerge?: (name: string) => Promise<void>
+    __solExpBranchPublish?: (name: string) => Promise<void>
 
     __solExpCommitMsg?: (msg: string) => void
 
@@ -355,9 +377,20 @@ declare global {
 .sol-exp-branch-pill { display:inline-flex; align-items:center; gap:4px; padding:1px 8px; border-radius:999px; background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.08)); font-size:11px; font-weight:500; color:var(--dsw-alias-label-primary,#d4d4d4); }
 .sol-exp-commit-item { display:flex; align-items:center; gap:6px; padding:3px 4px; border-radius:6px; cursor:pointer; }
 .sol-exp-commit-item:hover { background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.06)); }
+.sol-exp-commit-item.selected { background:var(--dsw-alias-interactive-bg-active,rgba(0,120,212,0.2)); }
+.sol-exp-graph-svg { flex:none; display:block; }
 .sol-exp-commit-hash { font-family:monospace; font-size:11px; color:var(--dsw-alias-label-tertiary,#6e6e6e); flex:none; }
 .sol-exp-commit-msg { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; color:var(--dsw-alias-label-primary,#d4d4d4); }
 .sol-exp-commit-date { flex:none; font-size:11px; color:var(--dsw-alias-label-tertiary,#6e6e6e); }
+.sol-exp-commit-detail { margin:2px 4px 6px; padding:6px 10px; border:1px solid var(--dsw-alias-border-l2,#333); border-radius:6px; background:var(--dsw-alias-bg-input,rgba(0,0,0,0.2)); font-size:12px; }
+.sol-exp-commit-detail-row { display:flex; gap:8px; padding:2px 0; align-items:baseline; }
+.sol-exp-commit-detail-label { flex:none; width:52px; color:var(--dsw-alias-label-tertiary,#6e6e6e); }
+.sol-exp-commit-detail-val { flex:1; min-width:0; word-break:break-all; color:var(--dsw-alias-label-primary,#d4d4d4); }
+.sol-exp-commit-detail-file { padding:1px 0 1px 52px; color:var(--dsw-alias-label-secondary,#969696); font-family:monospace; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sol-exp-commit-detail-close { margin-left:auto; background:transparent; border:none; color:var(--dsw-alias-label-tertiary,#6e6e6e); cursor:pointer; font-size:13px; padding:0 2px; }
+.sol-exp-commit-detail-close:hover { color:var(--dsw-alias-label-primary,#d4d4d4); }
+.sol-exp-commit-detail-btn { background:transparent; border:1px solid var(--dsw-alias-border-l2,#333); color:var(--dsw-alias-label-secondary,#969696); border-radius:4px; padding:2px 8px; font-size:11px; cursor:pointer; }
+.sol-exp-commit-detail-btn:hover { background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.1)); color:var(--dsw-alias-label-primary,#d4d4d4); }
 .sol-exp-scm-status { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:4px; font-size:11px; font-weight:700; background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.06)); }
 .sol-exp-scm-split { flex:1; min-height:0; height:100%; display:flex; flex-direction:column; }
 .sol-exp-scm-top { flex:1 1 55%; min-height:0; overflow-y:auto; }
@@ -626,6 +659,19 @@ function _notifyDiffListeners() {
 				let commitsPage = 0;
 				let commitsAllLoaded = false;
 				let commitsLoading = false;
+				let graphLanes = [];
+				let graphPrevLanes = [];
+				let graphDetailOpen = "";
+				let remotePanelOpen = false;
+				let branchPanelOpen = false;
+				let remotesList = [];
+				let branchesList = [];
+				let remoteName = "";
+				let remoteUrl = "";
+				let branchName = "";
+				let branchFrom = "";
+				let branchNewName = "";
+				let tagsList = [];
 
 				let gitChangesCount = 0;
 
@@ -735,17 +781,226 @@ async function loadGitStatus() {
   if (d < 30) return d + " 天前";
   return new Date(ts).toLocaleDateString();
 }
+const GRAPH_COLORS = ["#e2b714", "#4ec9b0", "#58a6ff", "#d2a8ff", "#ff7b72", "#79c0ff", "#7ee787", "#ffa657"];
+let toastTimer = null;
+/** Lightweight bottom-right toast; never a blocking dialog. */
+function showToast(msg, isError = false) {
+  let el = document.getElementById("sol-exp-toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "sol-exp-toast";
+    el.style.cssText = "position:fixed;bottom:16px;right:16px;z-index:99999;max-width:340px;max-height:200px;overflow:auto;padding:8px 12px;border-radius:6px;background:var(--dsw-alias-bg-overlay,var(--dsw-alias-bg-layer-3,#1e1e1e));border:1px solid var(--dsw-alias-border-l2,#333);font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,0.35);white-space:pre-wrap;word-break:break-all;transition:opacity .3s;";
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.color = isError ? "var(--dsw-color-error,#f48771)" : "var(--dsw-alias-label-primary,#d4d4d4)";
+  el.style.opacity = "1";
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.style.opacity = "0"; setTimeout(() => el.remove(), 400); }, 4000);
+}
+function resetGraph() {
+  graphLanes = [];
+  graphPrevLanes = [];
+  graphDetailOpen = "";
+}
+/** One graph row: vertical lanes + node + merge/branch diagonal lines (lane algorithm). */
+function renderGraphRow(commit) {
+  const laneW = 14, rowH = 20, nodeR = 3;
+  let idx = graphLanes.findIndex((l) => l.hash === commit.hash);
+  if (idx === -1) { idx = graphLanes.length; graphLanes.push({ hash: commit.hash, color: graphLanes.length % GRAPH_COLORS.length }); }
+  const width = Math.max(laneW, graphLanes.length * laneW);
+  let svg = `<svg class="sol-exp-graph-svg" width="${width}" height="${rowH}">`;
+  graphPrevLanes.forEach((pl, pi) => {
+    const ci = graphLanes.findIndex((l) => l.hash === pl.hash);
+    if (ci !== -1 && ci !== pi) {
+      const x1 = pi * laneW + laneW / 2, x2 = ci * laneW + laneW / 2;
+      svg += `<line x1="${x1}" y1="0" x2="${x2}" y2="${rowH}" stroke="${GRAPH_COLORS[pl.color % GRAPH_COLORS.length]}" stroke-width="2" opacity="0.7"/>`;
+    }
+  });
+  graphLanes.forEach((lane, i) => {
+    const x = i * laneW + laneW / 2;
+    const color = GRAPH_COLORS[lane.color % GRAPH_COLORS.length];
+    if (i === idx) {
+      svg += `<line x1="${x}" y1="0" x2="${x}" y2="${rowH / 2 - nodeR}" stroke="${color}" stroke-width="2"/>`;
+      svg += `<circle cx="${x}" cy="${rowH / 2}" r="${nodeR}" fill="${color}"/>`;
+      svg += `<line x1="${x}" y1="${rowH / 2 + nodeR}" x2="${x}" y2="${rowH}" stroke="${color}" stroke-width="2"/>`;
+    } else {
+      svg += `<line x1="${x}" y1="0" x2="${x}" y2="${rowH}" stroke="${color}" stroke-width="2" opacity="0.55"/>`;
+    }
+  });
+  svg += `</svg>`;
+  graphPrevLanes = graphLanes.slice();
+  const parents = commit.parents || [];
+  const laneColor = graphLanes[idx].color;
+  graphLanes.splice(idx, 1);
+  if (parents[0]) graphLanes.splice(idx, 0, { hash: parents[0], color: laneColor });
+  for (let p = 1; p < parents.length; p++) graphLanes.push({ hash: parents[p], color: graphLanes.length % GRAPH_COLORS.length });
+  return svg;
+}
+window.__solExpCommitDetail = async (hash) => {
+  if (!hash) return;
+  graphDetailOpen = graphDetailOpen === hash ? "" : hash;
+  const rows = document.querySelectorAll(".sol-exp-commit-item");
+  rows.forEach((r) => r.classList.toggle("selected", r.getAttribute("data-hash") === graphDetailOpen));
+  const detailEl = document.getElementById("sol-exp-commit-detail");
+  if (!detailEl) return;
+  if (!graphDetailOpen) { detailEl.style.display = "none"; return; }
+  detailEl.style.display = "block";
+  detailEl.innerHTML = '<div style="color:var(--dsw-alias-label-secondary,#969696)">Loading…</div>';
+  try {
+    const result = await (await fetch(`/solution-explorer/git-commit-detail?root=${encodeURIComponent(gitRoot())}&hash=${encodeURIComponent(hash)}`)).json();
+    if (!result.ok || !result.value) throw new Error(result.error?.message || "load failed");
+    const c = result.value;
+    const parentsHtml = (c.parents || []).map((p) => `<span style="font-family:monospace;color:var(--dsw-alias-label-tertiary,#6e6e6e)">${p.substring(0, 8)}</span>`).join(" ") || "—";
+    const filesHtml = (c.files || []).slice(0, 60).map((f) => `<div class="sol-exp-commit-detail-file" title="${f.replace(/"/g, "&quot;")}">${escapeHtml(f)}</div>`).join("") || '<div style="padding-left:52px;color:var(--dsw-alias-label-tertiary,#6e6e6e)">(no files)</div>';
+    detailEl.innerHTML = `
+      <div class="sol-exp-commit-detail-row"><button class="sol-exp-commit-detail-close" title="Close" onclick="window.__solExpCommitDetail('${hash}')">✕</button></div>
+      <div class="sol-exp-commit-detail-row"><span class="sol-exp-commit-detail-label">commit</span><span class="sol-exp-commit-detail-val" style="font-family:monospace">${c.hash}</span></div>
+      <div class="sol-exp-commit-detail-row"><span class="sol-exp-commit-detail-label">author</span><span class="sol-exp-commit-detail-val">${escapeHtml(c.author)} &lt;${escapeHtml(c.email)}&gt;</span></div>
+      <div class="sol-exp-commit-detail-row"><span class="sol-exp-commit-detail-label">date</span><span class="sol-exp-commit-detail-val">${new Date(c.timestamp).toLocaleString()}</span></div>
+      <div class="sol-exp-commit-detail-row"><span class="sol-exp-commit-detail-label">message</span><span class="sol-exp-commit-detail-val">${escapeHtml(c.message)}</span></div>
+      <div class="sol-exp-commit-detail-row"><span class="sol-exp-commit-detail-label">parents</span><span class="sol-exp-commit-detail-val">${parentsHtml}</span></div>
+      <div style="padding-top:4px"><span class="sol-exp-commit-detail-label" style="display:inline-block;padding-bottom:2px">files</span><div style="max-height:140px;overflow-y:auto">${filesHtml}</div></div>
+      <div style="padding-top:6px"><button class="sol-exp-commit-detail-btn" onclick="window.__solExpCommitCheckout('${hash}')">Checkout</button></div>`;
+  } catch (err) {
+    detailEl.innerHTML = `<div style="color:var(--dsw-color-error,#f48771)">${escapeHtml(err instanceof Error ? err.message : String(err))}</div>`;
+  }
+};
+window.__solExpCommitCheckout = async (hash) => {
+  if (!hash) return;
+  const zh = document.documentElement.lang?.startsWith("zh");
+  const ok = window.confirm(zh ? `Checkout 到 ${hash.substring(0, 8)}？\n注意：将进入 detached HEAD 状态（不在任何分支上）。` : `Checkout ${hash.substring(0, 8)}?\nNote: this enters a detached HEAD state.`);
+  if (!ok) return;
+  const result = await (await fetch("/solution-explorer/git-branch-checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name: hash }) })).json();
+  if (!result.ok) alert(result.error?.message || "checkout failed");
+  else { await loadGitStatus(); await loadRecentCommits(); }
+};
+async function loadRemotes() {
+  const result = await (await fetch(`/solution-explorer/git-remotes?root=${encodeURIComponent(gitRoot())}`)).json();
+  remotesList = result.ok && result.value ? result.value : [];
+}
+async function loadBranches() {
+  const result = await (await fetch(`/solution-explorer/git-branches?root=${encodeURIComponent(gitRoot())}`)).json();
+  branchesList = result.ok && result.value ? result.value : [];
+}
+async function loadTags() {
+  const result = await (await fetch(`/solution-explorer/git-tags?root=${encodeURIComponent(gitRoot())}`)).json();
+  tagsList = result.ok && result.value ? result.value : [];
+}
+window.__solExpGitInit = async () => {
+  if (!window.confirm(t("scm.init.confirm"))) return;
+  const result = await (await fetch("/solution-explorer/git-init", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot() }) })).json();
+  if (!result.ok) alert(result.error?.message || "init failed");
+  else { await loadRepos(); await loadGitStatus(); window.__solExpRefresh(); }
+};
+window.__solExpFetch = async () => {
+  const result = await (await fetch("/solution-explorer/git-fetch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot() }) })).json();
+  if (!result.ok) showToast(result.error?.message || "fetch failed", true);
+  else {
+    await loadGitStatus(); await loadBranches();
+    const out = (result.value || "").trim();
+    showToast(out ? t("scm.sync.fetch") + ":\n" + out : t("scm.sync.upToDate"));
+  }
+};
+window.__solExpPull = async () => {
+  if (!window.confirm(t("scm.sync.pullConfirm"))) return;
+  const result = await (await fetch("/solution-explorer/git-pull", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot() }) })).json();
+  if (!result.ok) showToast(result.error?.message || "pull failed", true);
+  else {
+    await loadGitStatus(); await loadRecentCommits();
+    const out = (result.value || "").trim();
+    showToast(out ? t("scm.sync.pull") + ":\n" + out : t("scm.sync.upToDate"));
+  }
+};
+window.__solExpPush = async () => {
+  if (!window.confirm(t("scm.sync.pushConfirm"))) return;
+  const result = await (await fetch("/solution-explorer/git-push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot() }) })).json();
+  if (!result.ok) showToast(result.error?.message || "push failed", true);
+  else {
+    await loadGitStatus();
+    const out = (result.value || "").trim();
+    showToast(out ? t("scm.sync.push") + ":\n" + out : t("scm.sync.done"));
+  }
+};
+window.__solExpSync = async () => {
+  if (!window.confirm(t("scm.sync.syncConfirm"))) return;
+  const result = await (await fetch("/solution-explorer/git-sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot() }) })).json();
+  if (!result.ok) showToast(result.error?.message || "sync failed", true);
+  else {
+    await loadGitStatus(); await loadRecentCommits();
+    const out = (result.value || "").trim();
+    showToast(out ? t("scm.sync.sync") + ":\n" + out : t("scm.sync.done"));
+  }
+};
+window.__solExpRemotePanel = async () => { remotePanelOpen = !remotePanelOpen; if (remotePanelOpen) await loadRemotes(); render(); };
+window.__solExpRemoteName = (v) => { remoteName = v; };
+window.__solExpRemoteUrl = (v) => { remoteUrl = v; };
+window.__solExpRemoteAdd = async () => {
+  if (!remoteName.trim() || !remoteUrl.trim()) return;
+  const result = await (await fetch("/solution-explorer/git-remote-add", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name: remoteName.trim(), url: remoteUrl.trim() }) })).json();
+  if (!result.ok) alert(result.error?.message || "add remote failed");
+  else { remoteName = ""; remoteUrl = ""; await loadRemotes(); render(); }
+};
+window.__solExpRemoteRemove = async (name) => {
+  if (!window.confirm(t("scm.remote.removeConfirm").replace("{name}", name))) return;
+  const result = await (await fetch("/solution-explorer/git-remote-remove", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name }) })).json();
+  if (!result.ok) alert(result.error?.message || "remove failed"); else { await loadRemotes(); render(); }
+};
+window.__solExpRemoteSetUrl = async (name) => {
+  const url = window.prompt("New URL for " + name);
+  if (!url || !url.trim()) return;
+  const result = await (await fetch("/solution-explorer/git-remote-set-url", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name, url: url.trim() }) })).json();
+  if (!result.ok) alert(result.error?.message || "set-url failed"); else await loadRemotes();
+};
+window.__solExpBranchPanel = async () => { branchPanelOpen = !branchPanelOpen; if (branchPanelOpen) { await loadBranches(); await loadTags(); } render(); };
+window.__solExpBranchName = (v) => { branchName = v; };
+window.__solExpBranchFrom = (v) => { branchFrom = v; };
+window.__solExpBranchCreate = async () => {
+  if (!branchName.trim()) return;
+  const body: { root: string; name: string; from?: string } = { root: gitRoot(), name: branchName.trim() };
+  if (branchFrom.trim()) body.from = branchFrom.trim();
+  const result = await (await fetch("/solution-explorer/git-branch-create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
+  if (!result.ok) alert(result.error?.message || "create failed");
+  else { branchName = ""; branchFrom = ""; await loadBranches(); render(); }
+};
+window.__solExpBranchCheckout = async (name, isRemote) => {
+  const result = await (await fetch("/solution-explorer/git-branch-checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name, track: isRemote === true }) })).json();
+  if (!result.ok) alert(result.error?.message || "checkout failed");
+  else { await loadGitStatus(); await loadRecentCommits(); await loadBranches(); render(); }
+};
+window.__solExpBranchDelete = async (name) => {
+  if (!window.confirm(t("scm.branch.deleteConfirm").replace("{name}", name))) return;
+  const result = await (await fetch("/solution-explorer/git-branch-delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name }) })).json();
+  if (!result.ok) alert(result.error?.message || "delete failed"); else { await loadBranches(); render(); }
+};
+window.__solExpBranchRename = async (name) => {
+  const newName = window.prompt(t("scm.branch.newName") + " (" + name + ")");
+  if (!newName || !newName.trim()) return;
+  const result = await (await fetch("/solution-explorer/git-branch-rename", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), oldName: name, newName: newName.trim() }) })).json();
+  if (!result.ok) alert(result.error?.message || "rename failed"); else { await loadBranches(); render(); }
+};
+window.__solExpBranchMerge = async (name) => {
+  if (!window.confirm(t("scm.branch.mergeConfirm").replace("{name}", name))) return;
+  const result = await (await fetch("/solution-explorer/git-branch-merge", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name }) })).json();
+  if (!result.ok) alert(result.error?.message || "merge failed"); else { await loadGitStatus(); await loadRecentCommits(); }
+};
+window.__solExpBranchPublish = async (name) => {
+  if (!window.confirm(t("scm.branch.publishConfirm").replace("{name}", name))) return;
+  const result = await (await fetch("/solution-explorer/git-branch-publish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name }) })).json();
+  if (!result.ok) alert(result.error?.message || "publish failed"); else await loadBranches();
+};
 async function loadRecentCommits() {
 					if (!root || !gitStatus || gitStatus.branch === "unknown") return;
 					commitsPage = 0;
 					commitsAllLoaded = false;
+					resetGraph();
 					await loadCommitsPage();
 				}
 				async function loadCommitsPage() {
 					if (!root || commitsLoading || commitsAllLoaded) return;
 					commitsLoading = true;
 					try {
-						const url = `/solution-explorer/git-log?root=${encodeURIComponent(gitRoot())}&count=20&skip=${commitsPage * 20}`;
+						const url = `/solution-explorer/git-log?root=${encodeURIComponent(gitRoot())}&count=50&skip=${commitsPage * 50}`;
 						const result = await (await fetch(url)).json();
 						if (result.ok && result.value) {
 							const commitsList = document.getElementById("sol-exp-commits-list");
@@ -754,11 +1009,15 @@ async function loadRecentCommits() {
 									commitsList.textContent = t("scm.log.empty");
 									commitsAllLoaded = true;
 								} else {
-									const items = result.value.map((commit) => `<div class="sol-exp-commit-item" title="${commit.message.replace(/"/g, "&quot;")}"><span class="sol-exp-commit-hash">${commit.shortHash}</span><span class="sol-exp-commit-msg">${escapeHtml(commit.message.substring(0, 60))}${commit.message.length > 60 ? "..." : ""}</span><span class="sol-exp-commit-date">${relTime(commit.timestamp)}</span></div>`).join("");
+									const items = result.value.map((commit) => {
+										const graph = renderGraphRow(commit);
+										const selected = graphDetailOpen === commit.hash ? " selected" : "";
+										return `<div class="sol-exp-commit-item${selected}" data-hash="${commit.hash}" title="${commit.message.replace(/"/g, "&quot;")}" onclick="window.__solExpCommitDetail('${commit.hash}')"><span class="sol-exp-graph">${graph}</span><span class="sol-exp-commit-hash">${commit.shortHash}</span><span class="sol-exp-commit-msg">${escapeHtml(commit.message.substring(0, 60))}${commit.message.length > 60 ? "..." : ""}</span><span class="sol-exp-commit-date">${relTime(commit.timestamp)}</span></div>`;
+									}).join("");
 									if (commitsPage === 0) commitsList.innerHTML = items;
 									else commitsList.insertAdjacentHTML("beforeend", items);
 									commitsPage++;
-									if (result.value.length < 20) commitsAllLoaded = true;
+									if (result.value.length < 50) commitsAllLoaded = true;
 								}
 							}
 						}
@@ -1095,10 +1354,24 @@ async function doStage(files) {
 
 					const allChanges = [...unstaged, ...untracked];
 
-					if (!isRepo) return `<div class="sol-exp-content"><div class="sol-exp-empty">${t("scm.notRepo")}</div></div>`;
+					if (!isRepo) return `<div class="sol-exp-content"><div class="sol-exp-empty">${t("scm.notRepo")}</div><div style="padding:12px;text-align:center"><button class="sol-exp-commit-btn" style="width:auto;padding:6px 16px" onclick="window.__solExpGitInit()">${t("scm.init.button")}</button></div></div>`;
 
 					let topHTML = "";
 					let bottomHTML = "";
+
+					const conflicts = status?.conflicts || [];
+
+					if (conflicts.length > 0) topHTML += `
+
+        <div class="sol-exp-scm-section" data-section="conflicts">
+
+          <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('conflicts')"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4"/></svg>${t("scm.merge.changes")}<span class="sol-exp-scm-header-actions"></span><span class="sol-exp-scm-section-count">${conflicts.length}</span></div>
+
+          ${conflicts.map((item) => buildSCMItem(item, "conflicts")).join("")}
+
+        </div>
+
+      `;
 
 					topHTML += `
 
@@ -1160,13 +1433,24 @@ async function doStage(files) {
 
         <div class="sol-exp-scm-section" data-section="repository">
 
-          <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('repository')"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4"/></svg>${t("scm.repository")}</div>
+          <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('repository')"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4"/></svg>${t("scm.repository")}<span class="sol-exp-scm-header-actions">
+            <button class="sol-exp-hdr-btn" title="${t("scm.sync.fetch")}" onclick="event.stopPropagation();window.__solExpFetch()"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v10M4 8l4 4 4-4"/></svg></button>
+            <button class="sol-exp-hdr-btn" title="${t("scm.sync.pull")}" onclick="event.stopPropagation();window.__solExpPull()"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v10M4 8l4 4 4-4"/><path d="M2 14h12"/></svg></button>
+            <button class="sol-exp-hdr-btn" title="${t("scm.sync.push")}" onclick="event.stopPropagation();window.__solExpPush()"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12V2M4 6l4-4 4 4"/></svg></button>
+            <button class="sol-exp-hdr-btn" title="${t("scm.sync.sync")}" onclick="event.stopPropagation();window.__solExpSync()"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8a6 6 0 0 1 10.47-4.02L14 5.5M14 8a6 6 0 0 1-10.47 4.02L2 10.5"/></svg></button>
+          </span><span class="sol-exp-scm-section-count">${(status?.ahead || 0) > 0 || (status?.behind || 0) > 0 ? `↑${status?.ahead || 0} ↓${status?.behind || 0}` : ""}</span></div>
 
           <div style="padding:4px 12px 8px 24px;flex:1;min-height:0;display:flex;flex-direction:column">
 
-            ${repos.map((r) => `<div class="sol-exp-repo-item ${activeRepo === r.path ? "active" : ""}" onclick="window.__solExpSelectRepo('${r.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')"><span class="sol-exp-repo-icon">⑂</span><span class="sol-exp-repo-name">${r.name}</span><span class="sol-exp-repo-branch">${r.branch}</span></div>`).join("")}<div style="font-size:12px;color:var(--dsw-alias-label-secondary);margin-bottom:6px">${t("scm.repository.branch")}</div><span class="sol-exp-branch-pill">⑂ ${status?.branch || ""}</span>
+            ${repos.map((r) => `<div class="sol-exp-repo-item ${activeRepo === r.path ? "active" : ""}" onclick="window.__solExpSelectRepo('${r.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')"><span class="sol-exp-repo-icon">⑂</span><span class="sol-exp-repo-name">${r.name}</span><span class="sol-exp-repo-branch">${r.branch}</span><span class="sol-exp-hdr-btn" title="${t("scm.remote.title")}" onclick="event.stopPropagation();window.__solExpRemotePanel()"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M6.5 9.5a3 3 0 0 0 4.24 0l2-2a3 3 0 0 0-4.24-4.24l-1 1"/><path d="M9.5 6.5a3 3 0 0 0-4.24 0l-2 2a3 3 0 0 0 4.24 4.24l1-1"/></svg></button></span><span class="sol-exp-hdr-btn" title="${t("scm.branch.title")}" onclick="event.stopPropagation();window.__solExpBranchPanel()"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="3.5" r="1.5"/><circle cx="5" cy="12.5" r="1.5"/><circle cx="11.5" cy="7" r="1.5"/><path d="M5 5v5.5M11.5 8.5c0 2.2-1.3 3-4.2 3"/></svg></button></span></div>`).join("")}<div style="font-size:12px;color:var(--dsw-alias-label-secondary);margin-bottom:6px">${t("scm.repository.branch")}</div><span class="sol-exp-branch-pill">⑂ ${status?.branch || ""}</span>
+
+            ${remotePanelOpen ? `<div style="margin:6px 0;padding:8px;border:1px solid var(--dsw-alias-border-l2,#333);border-radius:6px;font-size:12px"><div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><b>${t("scm.remote.title")}</b><span style="flex:1"></span><button class="sol-exp-commit-detail-close" onclick="window.__solExpRemotePanel()">✕</button></div>${remotesList.length === 0 ? `<div style="color:var(--dsw-alias-label-tertiary,#6e6e6e);padding:2px 0 6px">${t("scm.remote.none")}</div>` : remotesList.map((r) => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="flex:none;font-weight:600">${escapeHtml(r.name)}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary,#969696)">${escapeHtml(r.url)}</span><button class="sol-exp-commit-detail-btn" onclick="window.__solExpRemoteSetUrl('${r.name.replace(/'/g, "\\'")}')">${t("scm.remote.setUrl")}</button><button class="sol-exp-commit-detail-btn" onclick="window.__solExpRemoteRemove('${r.name.replace(/'/g, "\\'")}')">${t("scm.remote.remove")}</button></div>`).join("")}<div style="display:flex;gap:6px;margin-top:8px"><input class="sol-exp-commit-input" style="min-height:0;height:26px;flex:1" placeholder="${t("scm.remote.name")}" value="${escapeHtml(remoteName)}" oninput="window.__solExpRemoteName(this.value)"/><input class="sol-exp-commit-input" style="min-height:0;height:26px;flex:2" placeholder="${t("scm.remote.url")} (https://… 或 git@…)" value="${escapeHtml(remoteUrl)}" oninput="window.__solExpRemoteUrl(this.value)"/><button class="sol-exp-commit-detail-btn" onclick="window.__solExpRemoteAdd()">${t("scm.remote.addBtn")}</button></div></div>` : ""}
+
+            ${branchPanelOpen ? `<div style="margin:6px 0;padding:8px;border:1px solid var(--dsw-alias-border-l2,#333);border-radius:6px;font-size:12px"><div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><b>${t("scm.branch.title")}</b><span style="flex:1"></span><button class="sol-exp-commit-detail-close" onclick="window.__solExpBranchPanel()">✕</button></div><div style="color:var(--dsw-alias-label-tertiary,#6e6e6e);margin:2px 0">${t("scm.branch.local")}</div>${branchesList.filter((b) => !b.isRemote).map((b) => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer" onclick="window.__solExpBranchCheckout('${b.name.replace(/'/g, "\\'")}')"><span style="flex:none;width:14px">${b.current ? "➤" : ""}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${b.current ? "font-weight:600;color:var(--dsw-alias-label-primary)" : ""}">${escapeHtml(b.name)}</span><span style="flex:none;font-size:10px;color:var(--dsw-alias-label-tertiary,#6e6e6e);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${b.shortHash ? b.shortHash + " " : ""}${escapeHtml((b.subject || "").substring(0, 24))}</span>${b.upstream ? `<span style="flex:none;font-size:10px;color:var(--dsw-alias-label-tertiary,#6e6e6e)">${escapeHtml(b.upstream)}</span>` : ""}<button class="sol-exp-commit-detail-btn" style="padding:1px 5px" title="${t("scm.branch.rename")}" onclick="event.stopPropagation();window.__solExpBranchRename('${b.name.replace(/'/g, "\\'")}')">✎</button><button class="sol-exp-commit-detail-btn" style="padding:1px 5px" title="${t("scm.branch.merge")}" onclick="event.stopPropagation();window.__solExpBranchMerge('${b.name.replace(/'/g, "\\'")}')">⤵</button>${!b.current ? `<button class="sol-exp-commit-detail-btn" style="padding:1px 5px" title="${t("scm.branch.publish")}" onclick="event.stopPropagation();window.__solExpBranchPublish('${b.name.replace(/'/g, "\\'")}')">↑</button><button class="sol-exp-commit-detail-btn" style="padding:1px 5px" title="${t("scm.branch.delete")}" onclick="event.stopPropagation();window.__solExpBranchDelete('${b.name.replace(/'/g, "\\'")}')">✕</button>` : ""}</div>`).join("")}<div style="color:var(--dsw-alias-label-tertiary,#6e6e6e);margin:4px 0 2px">${t("scm.branch.remote")}</div>${branchesList.filter((b) => b.isRemote).map((b) => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer" onclick="window.__solExpBranchCheckout('${b.name.replace(/'/g, "\\'")}', true)"><span style="flex:none;width:14px"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary,#969696)">${escapeHtml(b.name)}</span><span style="flex:none;font-size:10px;color:var(--dsw-alias-label-tertiary,#6e6e6e);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${b.shortHash ? b.shortHash + " " : ""}${escapeHtml((b.subject || "").substring(0, 24))}</span></div>`).join("")}${tagsList.length > 0 ? `<div style="color:var(--dsw-alias-label-tertiary,#6e6e6e);margin:4px 0 2px">${t("scm.branch.tags")}</div>${tagsList.map((tg) => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="flex:none;width:14px"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary,#969696)">${escapeHtml(tg.name)}</span><span style="flex:none;font-size:10px;color:var(--dsw-alias-label-tertiary,#6e6e6e);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${tg.commitHash ? escapeHtml((tg.subject || "").substring(0, 24)) : ""}</span></div>`).join("")}` : ""}<div style="display:flex;gap:6px;margin-top:8px"><input class="sol-exp-commit-input" style="min-height:0;height:26px;flex:1" placeholder="${t("scm.branch.name")}" value="${escapeHtml(branchName)}" oninput="window.__solExpBranchName(this.value)"/><input class="sol-exp-commit-input" style="min-height:0;height:26px;flex:1" placeholder="${t("scm.branch.from")}" value="${escapeHtml(branchFrom)}" oninput="window.__solExpBranchFrom(this.value)"/><button class="sol-exp-commit-detail-btn" onclick="window.__solExpBranchCreate()">${t("scm.branch.createBtn")}</button></div></div>` : ""}
 
             <div style="font-size:12px;color:var(--dsw-alias-label-secondary)">${t("scm.repository.commits")}</div>
+
+            <div id="sol-exp-commit-detail" style="display:none"></div>
 
             <div id="sol-exp-commits-list" style="margin-top:6px;font-size:12px;color:var(--dsw-alias-label-tertiary);flex:1;min-height:0;overflow-y:auto" onscroll="window.__solExpCommitsScroll(event)">Loading...</div>
 
@@ -1186,7 +1470,7 @@ async function doStage(files) {
 
 					const pathJs = item.path.replace(/'/g, "\\'");
 
-					const action = section === "staged" ? `<button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpUnstage(['${pathJs}'])" title="${t("scm.unstage")}">◦</button>` : `<button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpStage(['${pathJs}'])" title="${t("scm.stage")}">+</button>
+					const action = section === "staged" ? `<button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpUnstage(['${pathJs}'])" title="${t("scm.unstage")}">◦</button>` : section === "conflicts" ? `<button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpStage(['${pathJs}'])" title="Mark resolved">✓</button>` : `<button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpStage(['${pathJs}'])" title="${t("scm.stage")}">+</button>
 
            <button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpDiscard(['${pathJs}'])" title="${t("scm.discard")}">✕</button>`;
 
@@ -2749,7 +3033,7 @@ styleObs = new MutationObserver(syncGrid);
 
 						"__solExpSearch",
 
-						"__solExpRefreshSCM", "__solExpCommitsScroll", "__solExpScmDividerDown", "__solExpSelectRepo",
+						"__solExpRefreshSCM", "__solExpCommitsScroll", "__solExpScmDividerDown", "__solExpSelectRepo", "__solExpCommitDetail", "__solExpCommitCheckout",
 
 						"__solExpCommitMsg",
 
@@ -2811,7 +3095,47 @@ styleObs = new MutationObserver(syncGrid);
 
 						"__solExpClearSelection",
 
-						"__solExpNew"
+						"__solExpNew",
+
+						"__solExpGitInit",
+
+						"__solExpFetch",
+
+						"__solExpPull",
+
+						"__solExpPush",
+
+						"__solExpSync",
+
+						"__solExpRemotePanel",
+
+						"__solExpRemoteName",
+
+						"__solExpRemoteUrl",
+
+						"__solExpRemoteAdd",
+
+						"__solExpRemoteRemove",
+
+						"__solExpRemoteSetUrl",
+
+						"__solExpBranchPanel",
+
+						"__solExpBranchName",
+
+						"__solExpBranchFrom",
+
+						"__solExpBranchCreate",
+
+						"__solExpBranchCheckout",
+
+						"__solExpBranchDelete",
+
+						"__solExpBranchRename",
+
+						"__solExpBranchMerge",
+
+						"__solExpBranchPublish"
 
 					].forEach((k) => delete window[k]);
 

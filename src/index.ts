@@ -41,7 +41,7 @@ export const inject = ['webServer', 'workspaceRegistry', 'systemPrompt']
 const SECTION_ORDER = 210
 
 /** Model-facing announcement. */
-export const EXPLORER_GUIDANCE = '本机已安装 dsh-solution-explorer 插件（DSH Web GUI 的右侧源代码管理面板）：项目会话打开时，聊天区右侧出现文件浏览器与源代码管理面板。能力：文件树浏览当前工作区目录（显示 git 状态标记 M/A/D/U/R），点击文件在编辑标签中查看与编辑内容（支持保存，Ctrl+S 或保存按钮），按文件名搜索；源代码管理面板显示暂存/未暂存/未跟踪变更清单，支持暂存/取消暂存/放弃变更，提交，查看差异与最近提交历史。数据源为当前会话工作目录的真实文件系统与 git 仓库，宿主进程经 /solution-explorer/* 路由提供。用户提到「右侧面板 / 文件浏览器 / 源代码管理 / 文件树 / 资源管理器 / 变更面板」时即指本插件，请据此协作。'
+export const EXPLORER_GUIDANCE = '本机已安装 dsh-solution-explorer 插件（DSH Web GUI 的右侧源代码管理面板）：项目会话打开时，聊天区右侧出现文件浏览器与源代码管理面板。能力：文件树浏览当前工作区目录（显示 git 状态标记 M/A/D/U/R），点击文件在编辑标签中查看与编辑内容（支持保存，Ctrl+S 或保存按钮），按文件名搜索；源代码管理面板显示暂存/未暂存/未跟踪变更清单，支持暂存/取消暂存/放弃变更，提交，查看差异与图形化提交历史（可查看提交详情/Checkout），支持仓库同步（抓取/拉取/推送/同步）、分支管理（切换/新建/重命名/删除/合并/发布）、远程仓库管理（添加/删除/修改地址）、非 git 目录初始化、合并冲突检测。数据源为当前会话工作目录的真实文件系统与 git 仓库，宿主进程经 /solution-explorer/* 路由提供。用户提到「右侧面板 / 文件浏览器 / 源代码管理 / 文件树 / 资源管理器 / 变更面板」时即指本插件，请据此协作。'
 
 // ─── Git helpers ────────────────────────────────────────────────────────────
 
@@ -74,10 +74,20 @@ function isGitRepo(root: string): boolean {
   return git(['rev-parse', '--git-dir'], root).ok
 }
 
+/** Remote URL shape: http(s)://, ssh://, or scp-like git@host:path. */
+function isValidRemoteUrl(url: string): boolean {
+  return /^(https?:\/\/|ssh:\/\/|git@[\w.-]+:)/.test(url)
+}
+
+/** Branch/tag name: no whitespace, control chars or `-` prefix (git ref rules). */
+function isValidRefName(name: string): boolean {
+  return name.length > 0 && !/[\s~^:?*[\\]/.test(name) && !name.startsWith('-')
+}
+
 /** Get the structured git status of a repo. */
 function getGitStatus(root: string): GitEnvelope {
   if (!isGitRepo(root)) {
-    return { ok: true, value: { staged: [], unstaged: [], untracked: [], ahead: 0, behind: 0, branch: 'unknown' } }
+    return { ok: true, value: { staged: [], unstaged: [], untracked: [], conflicts: [], ahead: 0, behind: 0, branch: 'unknown' } }
   }
   const branchResult = git(['rev-parse', '--abbrev-ref', 'HEAD'], root)
   const branch = branchResult.ok ? branchResult.stdout : 'HEAD'
@@ -94,6 +104,7 @@ function getGitStatus(root: string): GitEnvelope {
   const staged: GitChange[] = []
   const unstaged: GitChange[] = []
   const untracked: GitChange[] = []
+  const conflicts: GitChange[] = []
 
   if (statusResult.ok && statusResult.stdout) {
     const lines = statusResult.stdout.split('\n')
@@ -110,12 +121,17 @@ function getGitStatus(root: string): GitEnvelope {
         untracked.push({ path, status: '?' })
         continue
       }
+      // Merge conflict states: UU AA DD AU UA DU UD — surfaced separately.
+      if (st !== ' ' && us !== ' ') {
+        conflicts.push({ path, status: st + us, oldPath })
+        continue
+      }
       if (st !== ' ') staged.push({ path, status: st, oldPath })
       if (us !== ' ') unstaged.push({ path, status: us, oldPath })
     }
   }
 
-  return { ok: true, value: { staged, unstaged, untracked, ahead, behind, branch } }
+  return { ok: true, value: { staged, unstaged, untracked, conflicts, ahead, behind, branch } }
 }
 
 // ─── HTTP helpers ───────────────────────────────────────────────────────────
@@ -397,20 +413,97 @@ export function apply(ctx: Context, config: Config = {}): void {
             if (!root) { json(res, { ok: false, error: { message: 'root required' } }); return }
             const count = Math.min(parseInt(query.count || '20', 10), 100)
             const skip = Math.max(parseInt(query.skip || '0', 10), 0)
-                        const logArgs = ['log', `--max-count=${count}`]
+            // --parents feeds the client-side graph lane algorithm (merge edges).
+            const logArgs = ['log', `--max-count=${count}`]
             if (skip > 0) logArgs.push(`--skip=${skip}`)
-            logArgs.push('--format=%H|%h|%an|%ae|%at|%s')
+            logArgs.push('--format=%H|%P|%h|%an|%ae|%at|%s')
             const result = git(logArgs, root)
             if (!result.ok) { json(res, { ok: false, error: { message: result.error } }); return }
             const commits = result.stdout.split('\n').filter(Boolean).map((line: string) => {
               const parts = line.split('|')
               return {
-                hash: parts[0] || '', shortHash: parts[1] || '', author: parts[2] || '',
-                email: parts[3] || '', timestamp: parseInt(parts[4] || '0', 10) * 1000,
-                message: parts.slice(5).join('|') || '',
+                hash: parts[0] || '', parents: (parts[1] || '').split(' ').filter(Boolean),
+                shortHash: parts[2] || '', author: parts[3] || '',
+                email: parts[4] || '', timestamp: parseInt(parts[5] || '0', 10) * 1000,
+                message: parts.slice(6).join('|') || '',
               }
             })
             json(res, { ok: true, value: commits })
+            return
+          }
+          case '/solution-explorer/git-remotes': {
+            const root = query.root || ''
+            if (!root) { json(res, { ok: false, error: { message: 'root required' } }); return }
+            const result = git(['remote', '-v'], root)
+            if (!result.ok) { json(res, { ok: false, error: { message: result.error } }); return }
+            const remotes = result.stdout.split('\n').filter(Boolean).map((line: string) => {
+              const m = line.match(/^(\S+)\s+(\S+)\s+\((\w+)\)$/)
+              return m ? { name: m[1], url: m[2], type: m[3] } : null
+            }).filter((r): r is { name: string; url: string; type: string } => r !== null)
+            json(res, { ok: true, value: remotes })
+            return
+          }
+          case '/solution-explorer/git-branches': {
+            const root = query.root || ''
+            if (!root) { json(res, { ok: false, error: { message: 'root required' } }); return }
+            // Full refname (refs/heads/* vs refs/remotes/*) so local and remote
+            // branches are distinguishable — %(refname:short) collapses both to
+            // "name"/"origin/name" and the remote rows were mis-sorted.
+            const result = git(['branch', '-a', '--format=%(HEAD)|%(refname)|%(upstream:short)|%(objectname:short)|%(subject)'], root)
+            if (!result.ok) { json(res, { ok: false, error: { message: result.error } }); return }
+            const branches = result.stdout.split('\n').filter(Boolean).map((line: string) => {
+              const parts = line.split('|')
+              const ref = parts[1] || ''
+              let name = ''
+              let isRemote = false
+              if (ref.startsWith('refs/remotes/')) { name = ref.slice('refs/remotes/'.length); isRemote = true }
+              else if (ref.startsWith('refs/heads/')) name = ref.slice('refs/heads/'.length)
+              else return null // detached-HEAD row (no refname) — never a clickable branch
+              if (name.endsWith('/HEAD')) return null // origin/HEAD is a symref pointer, not a branch
+              return {
+                current: parts[0] === '*', name, isRemote,
+                upstream: parts[2] || '', shortHash: parts[3] || '',
+                subject: parts.slice(4).join('|') || '',
+              }
+            }).filter((b): b is NonNullable<typeof b> => b !== null)
+            json(res, { ok: true, value: branches })
+            return
+          }
+          case '/solution-explorer/git-tags': {
+            const root = query.root || ''
+            if (!root) { json(res, { ok: false, error: { message: 'root required' } }); return }
+            // Tag name, tag object hash, dereferenced commit hash and commit subject.
+            const result = git(['for-each-ref', 'refs/tags', '--sort=-creatordate', '--format=%(refname:short)|%(objectname:short)|%(*objectname:short)|%(*subject)'], root)
+            if (!result.ok) { json(res, { ok: false, error: { message: result.error } }); return }
+            const tags = result.stdout.split('\n').filter(Boolean).map((line: string) => {
+              const parts = line.split('|')
+              return {
+                name: parts[0] || '', hash: parts[1] || '',
+                commitHash: parts[2] || '', subject: parts.slice(3).join('|') || '',
+              }
+            })
+            json(res, { ok: true, value: tags })
+            return
+          }
+          case '/solution-explorer/git-commit-detail': {
+            const root = query.root || ''
+            const hash = query.hash || ''
+            if (!root || !hash) { json(res, { ok: false, error: { message: 'root and hash required' } }); return }
+            const result = git(['show', '--name-only', '--format=%H|%P|%h|%an|%ae|%at|%s', hash], root)
+            if (!result.ok) { json(res, { ok: false, error: { message: result.error } }); return }
+            const lines = result.stdout.split('\n')
+            const head = lines[0] || ''
+            const parts = head.split('|')
+            const files = lines.slice(1).filter(Boolean)
+            json(res, {
+              ok: true,
+              value: {
+                hash: parts[0] || '', parents: (parts[1] || '').split(' ').filter(Boolean),
+                shortHash: parts[2] || '', author: parts[3] || '',
+                email: parts[4] || '', timestamp: parseInt(parts[5] || '0', 10) * 1000,
+                message: parts.slice(6).join('|') || '', files,
+              },
+            })
             return
           }
         }
@@ -586,6 +679,159 @@ export function apply(ctx: Context, config: Config = {}): void {
             }
             return
           }
+          case '/solution-explorer/git-init': {
+            if (!root) { json(res, { ok: false, error: { message: 'root required' } }); return }
+            if (isGitRepo(root)) { json(res, { ok: false, error: { message: 'already a git repository' } }); return }
+            const result = git(['init'], root)
+            json(res, result.ok ? { ok: true, value: true } : { ok: false, error: { message: result.error } })
+            return
+          }
+          case '/solution-explorer/git-fetch': {
+            if (!root) { json(res, { ok: false, error: { message: 'root required' } }); return }
+            const result = git(['fetch'], root)
+            json(res, result.ok ? { ok: true, value: result.stdout } : { ok: false, error: { message: result.error } })
+            return
+          }
+          case '/solution-explorer/git-pull': {
+            if (!root) { json(res, { ok: false, error: { message: 'root required' } }); return }
+            const headRef = git(['rev-parse', '--abbrev-ref', 'HEAD'], root)
+            if (headRef.ok && headRef.stdout === 'HEAD') {
+              json(res, { ok: false, error: { message: '当前不在任何分支上（detached HEAD），请先在分支面板切换到分支再拉取' } }); return
+            }
+            const result = git(['pull'], root)
+            json(res, result.ok ? { ok: true, value: result.stdout } : { ok: false, error: { message: result.error } })
+            return
+          }
+          case '/solution-explorer/git-push': {
+            if (!root) { json(res, { ok: false, error: { message: 'root required' } }); return }
+            const headRef = git(['rev-parse', '--abbrev-ref', 'HEAD'], root)
+            if (headRef.ok && headRef.stdout === 'HEAD') {
+              json(res, { ok: false, error: { message: '当前不在任何分支上（detached HEAD），请先在分支面板切换到分支再推送' } }); return
+            }
+            const result = git(['push'], root)
+            json(res, result.ok ? { ok: true, value: result.stdout } : { ok: false, error: { message: result.error } })
+            return
+          }
+          case '/solution-explorer/git-sync': {
+            if (!root) { json(res, { ok: false, error: { message: 'root required' } }); return }
+            const headRef = git(['rev-parse', '--abbrev-ref', 'HEAD'], root)
+            if (headRef.ok && headRef.stdout === 'HEAD') {
+              json(res, { ok: false, error: { message: '当前不在任何分支上（detached HEAD），请先在分支面板切换到分支再同步' } }); return
+            }
+            // VS Code "Sync Changes": pull first, then push; a failed pull stops.
+            const pull = git(['pull'], root)
+            if (!pull.ok) { json(res, { ok: false, error: { message: pull.error } }); return }
+            const push = git(['push'], root)
+            json(res, push.ok ? { ok: true, value: push.stdout } : { ok: false, error: { message: push.error } })
+            return
+          }
+          case '/solution-explorer/git-remote-add': {
+            const name = typeof payload.name === 'string' ? payload.name : ''
+            const remoteUrl = typeof payload.url === 'string' ? payload.url : ''
+            if (!root || !name || !remoteUrl) { json(res, { ok: false, error: { message: 'root, name and url required' } }); return }
+            if (!isValidRefName(name) || !isValidRemoteUrl(remoteUrl)) {
+              json(res, { ok: false, error: { message: 'invalid remote name or url' } }); return
+            }
+            const result = git(['remote', 'add', name, remoteUrl], root)
+            json(res, result.ok ? { ok: true, value: true } : { ok: false, error: { message: result.error } })
+            return
+          }
+          case '/solution-explorer/git-remote-remove': {
+            const name = typeof payload.name === 'string' ? payload.name : ''
+            if (!root || !name) { json(res, { ok: false, error: { message: 'root and name required' } }); return }
+            if (!isValidRefName(name)) { json(res, { ok: false, error: { message: 'invalid remote name' } }); return }
+            const result = git(['remote', 'remove', name], root)
+            json(res, result.ok ? { ok: true, value: true } : { ok: false, error: { message: result.error } })
+            return
+          }
+          case '/solution-explorer/git-remote-set-url': {
+            const name = typeof payload.name === 'string' ? payload.name : ''
+            const remoteUrl = typeof payload.url === 'string' ? payload.url : ''
+            if (!root || !name || !remoteUrl) { json(res, { ok: false, error: { message: 'root, name and url required' } }); return }
+            if (!isValidRefName(name) || !isValidRemoteUrl(remoteUrl)) {
+              json(res, { ok: false, error: { message: 'invalid remote name or url' } }); return
+            }
+            const result = git(['remote', 'set-url', name, remoteUrl], root)
+            json(res, result.ok ? { ok: true, value: true } : { ok: false, error: { message: result.error } })
+            return
+          }
+          case '/solution-explorer/git-branch-create': {
+            const name = typeof payload.name === 'string' ? payload.name : ''
+            const from = typeof payload.from === 'string' && payload.from ? payload.from : ''
+            if (!root || !name) { json(res, { ok: false, error: { message: 'root and name required' } }); return }
+            if (!isValidRefName(name)) { json(res, { ok: false, error: { message: 'invalid branch name' } }); return }
+            const args = ['branch', name]
+            if (from) { if (!isValidRefName(from)) { json(res, { ok: false, error: { message: 'invalid from ref' } }); return } args.push(from) }
+            const result = git(args, root)
+            json(res, result.ok ? { ok: true, value: true } : { ok: false, error: { message: result.error } })
+            return
+          }
+          case '/solution-explorer/git-branch-checkout': {
+            const name = typeof payload.name === 'string' ? payload.name : ''
+            const track = payload.track === true
+            if (!root || !name) { json(res, { ok: false, error: { message: 'root and name required' } }); return }
+            if (!isValidRefName(name)) { json(res, { ok: false, error: { message: 'invalid ref name' } }); return }
+            // Remote branch click (track=true): create a local tracking branch
+            // instead of detaching HEAD — VS Code style checkout.
+            if (!track) {
+              const result = git(['checkout', name], root)
+              json(res, result.ok ? { ok: true, value: true } : { ok: false, error: { message: result.error } })
+              return
+            }
+            // Remote-branch checkout: resolve origin/HEAD to its target, then
+            // reuse an existing local branch instead of failing with --track.
+            let target = name
+            if (target.endsWith('/HEAD')) {
+              const sym = git(['symbolic-ref', '--short', 'refs/remotes/' + target], root)
+              if (!sym.ok) { json(res, { ok: false, error: { message: 'cannot resolve ' + target } }); return }
+              target = sym.stdout.trimEnd()
+            }
+            const short = target.includes('/') ? target.slice(target.indexOf('/') + 1) : target
+            if (short === 'HEAD' || !isValidRefName(short)) {
+              json(res, { ok: false, error: { message: 'invalid branch name' } }); return
+            }
+            const localExists = git(['rev-parse', '--verify', '--quiet', 'refs/heads/' + short], root).ok
+            const args = localExists ? ['checkout', short] : ['checkout', '--track', target]
+            const result = git(args, root)
+            json(res, result.ok ? { ok: true, value: true } : { ok: false, error: { message: result.error } })
+            return
+          }
+          case '/solution-explorer/git-branch-delete': {
+            const name = typeof payload.name === 'string' ? payload.name : ''
+            const force = payload.force === true
+            if (!root || !name) { json(res, { ok: false, error: { message: 'root and name required' } }); return }
+            if (!isValidRefName(name)) { json(res, { ok: false, error: { message: 'invalid branch name' } }); return }
+            const result = git(['branch', force ? '-D' : '-d', name], root)
+            json(res, result.ok ? { ok: true, value: true } : { ok: false, error: { message: result.error } })
+            return
+          }
+          case '/solution-explorer/git-branch-rename': {
+            const oldName = typeof payload.oldName === 'string' ? payload.oldName : ''
+            const newName = typeof payload.newName === 'string' ? payload.newName : ''
+            if (!root || !oldName || !newName) { json(res, { ok: false, error: { message: 'root, oldName and newName required' } }); return }
+            if (!isValidRefName(oldName) || !isValidRefName(newName)) {
+              json(res, { ok: false, error: { message: 'invalid branch name' } }); return
+            }
+            const result = git(['branch', '-m', oldName, newName], root)
+            json(res, result.ok ? { ok: true, value: true } : { ok: false, error: { message: result.error } })
+            return
+          }
+          case '/solution-explorer/git-branch-merge': {
+            const name = typeof payload.name === 'string' ? payload.name : ''
+            if (!root || !name) { json(res, { ok: false, error: { message: 'root and name required' } }); return }
+            if (!isValidRefName(name)) { json(res, { ok: false, error: { message: 'invalid branch name' } }); return }
+            const result = git(['merge', name], root)
+            json(res, result.ok ? { ok: true, value: true } : { ok: false, error: { message: result.error } })
+            return
+          }
+          case '/solution-explorer/git-branch-publish': {
+            const name = typeof payload.name === 'string' ? payload.name : ''
+            if (!root || !name) { json(res, { ok: false, error: { message: 'root and name required' } }); return }
+            if (!isValidRefName(name)) { json(res, { ok: false, error: { message: 'invalid branch name' } }); return }
+            const result = git(['push', '-u', 'origin', name], root)
+            json(res, result.ok ? { ok: true, value: true } : { ok: false, error: { message: result.error } })
+            return
+          }
         }
         json(res, { ok: false, error: { message: 'not found' } }, 404)
         return
@@ -631,6 +877,7 @@ export interface GitStatusData {
   staged: GitChange[]
   unstaged: GitChange[]
   untracked: GitChange[]
+  conflicts: GitChange[]
   ahead: number
   behind: number
   branch: string
@@ -638,6 +885,7 @@ export interface GitStatusData {
 
 export interface GitCommit {
   hash: string
+  parents: string[]
   shortHash: string
   author: string
   email: string

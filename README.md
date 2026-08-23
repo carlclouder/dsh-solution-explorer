@@ -19,13 +19,20 @@ layout.
   with expand/collapse, VS Code-style git status markers (M/A/D/R/?), and
   directory "modified" indicators.
 - **Source Control** — staged / unstaged / untracked change lists with
-  stage / unstage / discard (per-file or all), commit with a message, recent
-  commit history (infinite scroll) and branch info. **Diff view**: full-file
-  side-by-side compare with an editable right column (Enter splits lines,
-  backspace/delete merges, NBSP placeholders), Ctrl+S to save. **Multi-repo
-  support**: auto-discovers git repositories under the workspace and lets you
-  switch between them; the SCM panel follows the selected repo. **Split panes**:
-  drag the divider between changes and repository to resize, history fills the
+  stage / unstage / discard (per-file or all), commit with a message, and a
+  branch info bar. **Diff view**: full-file side-by-side compare with an
+  editable right column (Enter splits lines, backspace/delete merges, NBSP
+  placeholders), Ctrl+S to save. **Commit Graph**: an SVG history view with
+  branch lanes, merge lines and per-commit details (author, date, parents,
+  changed files) plus checkout. **Sync**: fetch / pull / push / sync (pull +
+  push) with ahead/behind counts, each remote-write confirmed. **Branches**:
+  switch / create / rename / delete / merge / publish. **Remotes**: add /
+  remove / set URL. **Git Init**: initialize a repository from a plain
+  directory. **Merge changes**: pull/merge conflicts (UU/AA/DD/…) are
+  detected and listed for manual resolution. **Multi-repo support**:
+  auto-discovers git repositories under the workspace and lets you switch
+  between them; the SCM panel follows the selected repo. **Split panes**: drag
+  the divider between changes and repository to resize, history fills the
   bottom. Bulk actions live in the section headers; discard all asks for
   confirmation.
 - **Syntax highlighting** — editor and diff views colorize 15 languages
