@@ -1,11 +1,6 @@
 /**
  * dsh-solution-explorer — browser half: registers a dual-panel (Explorer + SCM)
  * component into the "details" slot of the web shell's three-column layout.
- * Features:
- * - File tree with git status indicators (M, A, D, ?, etc.)
- * - Source Control panel: staged/unstaged/untracked, stage/unstage/discard, commit
- * - File search
- * - File editor with save and Ctrl+S support
  * @module dsh-solution-explorer/client
  */
 
@@ -13,7 +8,7 @@ import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/c
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { createElement as h, useState, useEffect, useCallback, useRef } from 'react'
+import { createElement as h, useCallback, useEffect, useRef, useState } from 'react'
 import { NS, dictionaries, setLanguage, t, type SolutionExplorerKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -33,14 +28,10 @@ declare global {
   interface Window {
     __solExpTab?: (tab: string) => void
     __solExpToggleExpand?: (path: string) => void
-    __solExpSelectFile?: (path: string) => void
+    __solExpSelectFile?: (path: string) => Promise<void>
     __solExpCollapseAll?: () => void
     __solExpExpandAll?: () => void
     __solExpRefresh?: () => void
-    __solExpClearSearch?: () => void
-    __solExpDeleteFile?: (target: string) => void
-    __solExpContextMenu?: (target: string, x: number, y: number, isDir?: boolean) => void
-    __solExpPanelContextMenu?: (evt: MouseEvent) => void
     __solExpSearch?: (query: string) => void
     __solExpRefreshSCM?: () => void
     __solExpCommitMsg?: (msg: string) => void
@@ -56,21 +47,27 @@ declare global {
     __solExpSaveFile?: () => Promise<void>
     __solExpGetEditorState?: () => { editorFile: string | null; editorContent: string | null; editorLoading: boolean; editorError: string | null; editorSaving: boolean; editorUnsupported: boolean }
     __solExpEditorListeners?: Set<() => void>
+    __solExpOpenDiff?: (path: string, staged: boolean) => Promise<void>
+    __solExpGetDiffState?: () => { diffPath: string | null; diffStaged: boolean; diffContent: string | null; diffOldContent: string; diffNewContent: string; diffLoading: boolean; diffRoot: string }
+    __solExpDiffListeners?: Set<() => void>
     __solExpSelect?: (path: string, shift: boolean, ctrl: boolean, isDir: boolean) => void
     __solExpClearSelection?: () => void
     __solExpCopy?: () => void
-    __solExpNew?: (type: 'file' | 'dir', dir: string) => Promise<void>
     __solExpCut?: () => void
     __solExpPaste?: (target: string) => Promise<void>
+    __solExpNew?: (type: 'file' | 'dir', dir: string) => Promise<void>
     __solExpDragStart?: (path: string) => void
     __solExpDragOver?: (path: string, evt: DragEvent) => void
     __solExpDrop?: (path: string, evt: DragEvent) => Promise<void>
     __solExpDropFiles?: (target: string, files: FileList | File[]) => Promise<void>
     __solExpDeletePaths?: (paths: string[]) => Promise<void>
+    __solExpPanelContextMenu?: (evt: MouseEvent) => void
+    __solExpContextMenu?: (target: string, x: number, y: number, isDir?: boolean) => void
+    __solExpDeleteFile?: (target: string) => Promise<void>
+    __solExpClearSearch?: () => void
   }
 }
-
-const STYLES = `
+		const STYLES = `
 .sol-exp-panel { height:100%; display:flex; flex-direction:column; background:var(--dsw-specific-sidebar-fill); color:var(--dsw-alias-label-primary); font-size:13px; line-height:20px; user-select:none; overflow:hidden; }
 .sol-exp-header { flex:none; display:flex; align-items:center; justify-content:space-between; gap:4px; height:34px; padding:0 8px 0 6px; box-sizing:border-box; border-radius:12px; color:var(--dsw-alias-label-tertiary); }
 .sol-exp-title { font-size:13px; font-weight:500; color:var(--dsw-alias-label-tertiary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
@@ -107,6 +104,13 @@ const STYLES = `
 .sol-exp-scm-item:hover .sol-exp-scm-actions { display:flex; }
 .sol-exp-scm-action-btn { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; border:none; background:transparent; color:var(--dsw-alias-label-tertiary,#6e6e6e); cursor:pointer; border-radius:3px; padding:0; font-size:11px; }
 .sol-exp-scm-action-btn:hover { background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.1)); color:var(--dsw-alias-label-primary,#d4d4d4); }
+.sol-exp-diff { margin:0 12px 6px 40px; border-left:2px solid var(--dsw-alias-border-l2,#333); background:var(--dsw-alias-bg-input,rgba(0,0,0,0.2)); border-radius:6px; overflow:hidden; }
+.sol-exp-diff-line { padding:0 8px; font-family:'Cascadia Code','Fira Code','Consolas',monospace; font-size:12px; line-height:18px; white-space:pre; color:var(--dsw-alias-label-secondary,#969696); }
+.sol-exp-diff-line.add { background:rgba(78,201,176,0.12); color:#4ec9b0; }
+.sol-exp-diff-line.del { background:rgba(241,76,76,0.12); color:#f14c4c; }
+.sol-exp-diff-line.hunk { background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.06)); color:var(--dsw-alias-label-primary,#d4d4d4); }
+.sol-exp-diff-line.meta { color:var(--dsw-alias-label-tertiary,#6e6e6e); }
+.sol-exp-diff-empty { padding:8px; color:var(--dsw-alias-label-tertiary,#6e6e6e); font-size:12px; }
 .sol-exp-scm-header-actions { display:flex; align-items:center; gap:2px; margin-left:auto; }
 .sol-exp-hdr-btn { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; border:none; border-radius:6px; background:transparent; color:var(--dsw-alias-label-tertiary,#6e6e6e); cursor:pointer; padding:0; }
 .sol-exp-hdr-btn:hover { background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.1)); color:var(--dsw-alias-label-primary,#d4d4d4); }
@@ -160,906 +164,1593 @@ const STYLES = `
 .sol-exp-editor-saved { color:#4ec9b0; }
 .sol-exp-editor-unsaved { color:#e2b714; }
 `;
-
-export const inject = ['locale', 'sessions', 'slots']
-
-// Module-level editor state (shared between EditorView and __solExpOpenFile)
-let _editorFile: string | null = null
-let _editorContent: string | null = null
-let _editorLoading = false
-let _editorError: string | null = null
-let _editorSaving = false
-let _editorUnsupported = false
-const _editorListeners = new Set<() => void>()
-let _editorRoot = ''
-
-function _notifyEditorListeners() {
-  for (const fn of _editorListeners) _editorListeners.has(fn) && fn()
-}
-
-export function apply(ctx: ClientContext): void {
-  ctx.effect(() => ctx.locale.register(NS, dictionaries), 'dsh-solution-explorer: dictionaries')
-
-  ctx.effect(() => {
-    const styleId = 'dsh-solution-explorer-styles'
-    if (document.getElementById(styleId)) return () => {}
-    const style = document.createElement('style')
-    style.id = styleId
-    style.textContent = STYLES
-    document.head.appendChild(style)
-    return () => { style.remove() }
-  }, 'dsh-solution-explorer: styles')
-
-  ctx.effect(() => {
-    let root = ''
-    let currentTab: 'explorer' | 'search' | 'scm' = 'explorer'
-    let treeState: any = null
-    let loading = false
-    let error: string | null = null
-    let searchQuery = ''
-    let searchResults: any[] = []
-    let searching = false
-    let expandedPaths = new Set<string>()
-    let selectedPath: string | null = null
-    let selectedPaths = new Set<string>()
-    let selectionAnchor: string | null = null
-    let clipboard: { paths: string[]; mode: 'copy' | 'cut' } | null = null
-    let dragPaths: string[] = []
-    let dropTargetPath: string | null = null
-    let gitStatus: any = null
-    let commitMessage = ''
-    let committing = false
-    let gitChangesCount = 0
-    let activeEl: HTMLElement | null = null
-    let loadSeq = 0
-
-    function render() {
-      if (!activeEl) return
-      setLanguage(document.documentElement.lang?.startsWith('zh') ? 'zh' : 'en')
-      activeEl.innerHTML = buildHTML()
-    }
-    async function loadTree() {
-      if (!root) return
-      const seq = ++loadSeq
-      loading = true; error = null; render()
-      try {
-        const resp = await fetch(`/solution-explorer/tree?root=${encodeURIComponent(root)}`)
-        const result = await resp.json()
-        if (seq !== loadSeq || root === '') return
-        if (result.ok) { treeState = result.value }
-        else { error = result.error?.message || 'Failed to load tree' }
-      } catch (err) {
-        if (seq !== loadSeq) return
-        error = err instanceof Error ? err.message : String(err)
-      }
-      loading = false; render()
-    }
-    async function loadGitStatus() {
-      if (!root) return
-      render()
-      try {
-        const resp = await fetch(`/solution-explorer/git-status?root=${encodeURIComponent(root)}`)
-        const result = await resp.json()
-        if (result.ok) {
-          gitStatus = result.value
-          gitChangesCount = (result.value.staged?.length || 0) + (result.value.unstaged?.length || 0) + (result.value.untracked?.length || 0)
-        }
-      } catch {}
-      render()
-      // Load recent commits if we have a valid repo
-      if (gitStatus && gitStatus.branch !== 'unknown') {
-        loadRecentCommits()
-      }
-    }
-    // Load recent commits for the repository section
-    async function loadRecentCommits() {
-      if (!root || !gitStatus || gitStatus.branch === 'unknown') return
-      try {
-        const resp = await fetch(`/solution-explorer/git-log?root=${encodeURIComponent(root)}`)
-        const result = await resp.json()
-        if (result.ok && result.value) {
-          const commitsList = document.getElementById('sol-exp-commits-list')
-          if (commitsList) {
-            if (result.value.length === 0) {
-              commitsList.textContent = t('scm.log.empty')
-            } else {
-              commitsList.innerHTML = result.value.slice(0, 5).map((commit: any) => 
-                `<div style="margin-bottom:4px;cursor:pointer" title="${commit.message}"><span style="color:var(--dsw-alias-label-primary)">${commit.shortHash}</span> ${commit.message.substring(0, 50)}${commit.message.length > 50 ? '...' : ''}</div>`
-              ).join('')
-            }
-          }
-        }
-      } catch (err) {
-        console.error('Failed to load commits:', err)
-      }
-    }
-
-    async function doStage(files: string[]) {
-      if (!root) return
-      await fetch('/solution-explorer/git-stage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ root, files }) })
-      await loadGitStatus()
-    }
-    async function doUnstage(files: string[]) {
-      if (!root) return
-      await fetch('/solution-explorer/git-unstage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ root, files }) })
-      await loadGitStatus()
-    }
-    async function doDiscard(files: string[]) {
-      if (!root) return
-      await fetch('/solution-explorer/git-discard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ root, files }) })
-      await loadGitStatus(); await loadTree()
-    }
-    async function doCommit() {
-      if (!root || !commitMessage.trim()) return
-      committing = true; render()
-      try {
-        const resp = await fetch('/solution-explorer/git-commit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ root, message: commitMessage.trim() }) })
-        const result = await resp.json()
-        if (result.ok) { commitMessage = ''; await loadGitStatus(); await loadTree() }
-        else { alert(t('scm.commitFailed') + ': ' + (result.error?.message || '')) }
-      } catch (err: any) { alert(t('scm.commitFailed') + ': ' + err.message) }
-      committing = false; render()
-    }
-    async function searchFiles(query: string) {
-      searchQuery = query
-      if (!query.trim()) { searching = false; searchResults = []; render(); return }
-      searching = true; render()
-      try {
-        const resp = await fetch(`/solution-explorer/search?root=${encodeURIComponent(root)}&q=${encodeURIComponent(query)}`)
-        const result = await resp.json()
-        if (searchQuery !== query) return
-        if (result.ok) searchResults = result.value
-        render()
-      } catch { render() }
-    }
-
-    function buildHTML(): string {
-      const activityBarHTML = `
+		export const inject = [
+			"locale",
+			"sessions",
+			"slots"
+		];
+		let _editorFile = null;
+		let _editorContent = null;
+		let _editorLoading = false;
+		let _editorError = null;
+		let _editorSaving = false;
+		let _editorUnsupported = false;
+		const _editorListeners = /* @__PURE__ */ new Set<() => void>();
+		let _diffPath = null;
+		let _diffStaged = false;
+		let _diffRoot = "";
+		let _diffContent = null;
+		let _diffOldContent = "";
+		let _diffNewContent = "";
+		let _diffLoading = false;
+		const _diffListeners = /* @__PURE__ */ new Set<() => void>();
+		function _notifyDiffListeners() {
+			for (const fn of _diffListeners) _diffListeners.has(fn) && fn();
+		}
+		/** Convert a unified diff into old/new row pairs (with line numbers) for a side-by-side view. */
+		function parseSideBySide(content) {
+			const rows = [];
+			let oldLine = 0, newLine = 0;
+			for (const line of content.split("\n")) {
+				if (line.startsWith("diff ") || line.startsWith("index ") || line.startsWith("---") || line.startsWith("+++")) continue;
+				if (line.startsWith("@@")) {
+					const m = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+					if (m) {
+						oldLine = parseInt(m[1], 10);
+						newLine = parseInt(m[2], 10);
+					}
+					continue;
+				}
+				if (line.startsWith("+")) {
+					rows.push({
+						old: "",
+						new: line.slice(1),
+						oldNum: null,
+						newNum: newLine++
+					});
+					continue;
+				}
+				if (line.startsWith("-")) {
+					rows.push({
+						old: line.slice(1),
+						new: "",
+						oldNum: oldLine++,
+						newNum: null
+					});
+					continue;
+				}
+				rows.push({
+					old: line.slice(1),
+					new: line.slice(1),
+					oldNum: oldLine++,
+					newNum: newLine++
+				});
+			}
+			return rows;
+		}
+		function _notifyEditorListeners() {
+			for (const fn of _editorListeners) _editorListeners.has(fn) && fn();
+		}
+		function apply(ctx: ClientContext) {
+			ctx.effect(() => ctx.locale.register(NS, dictionaries), "dsh-solution-explorer: dictionaries");
+			ctx.effect(() => {
+				const styleId = "dsh-solution-explorer-styles";
+				if (document.getElementById(styleId)) return () => {};
+				const style = document.createElement("style");
+				style.id = styleId;
+				style.textContent = STYLES;
+				document.head.appendChild(style);
+				return () => {
+					style.remove();
+				};
+			}, "dsh-solution-explorer: styles");
+			ctx.effect(() => {
+				let root = "";
+				let currentTab = "explorer";
+				let treeState = null;
+				let loading = false;
+				let error = null;
+				let searchQuery = "";
+				let searchResults = [];
+				let searching = false;
+				let expandedPaths = /* @__PURE__ */ new Set<string>();
+				let selectedPath = null;
+				let selectedPaths = /* @__PURE__ */ new Set<string>();
+				let selectionAnchor = null;
+				let clipboard = null;
+				let dragPaths = [];
+				let dropTargetPath = null;
+				let gitStatus = null;
+				let commitMessage = "";
+				let committing = false;
+				let gitChangesCount = 0;
+				let activeEl = null;
+				let loadSeq = 0;
+				function render() {
+					if (!activeEl) return;
+					setLanguage(document.documentElement.lang?.startsWith("zh") ? "zh" : "en");
+					activeEl.innerHTML = buildHTML();
+				}
+				async function loadTree() {
+					if (!root) return;
+					const seq = ++loadSeq;
+					loading = true;
+					error = null;
+					render();
+					try {
+						const result = await (await fetch(`/solution-explorer/tree?root=${encodeURIComponent(root)}`)).json();
+						if (seq !== loadSeq || root === "") return;
+						if (result.ok) treeState = result.value;
+						else error = result.error?.message || "Failed to load tree";
+					} catch (err) {
+						if (seq !== loadSeq) return;
+						error = err instanceof Error ? err.message : String(err);
+					}
+					loading = false;
+					render();
+				}
+				async function loadGitStatus() {
+					if (!root) return;
+					render();
+					try {
+						const result = await (await fetch(`/solution-explorer/git-status?root=${encodeURIComponent(root)}`)).json();
+						if (result.ok) {
+							gitStatus = result.value;
+							gitChangesCount = (result.value.staged?.length || 0) + (result.value.unstaged?.length || 0) + (result.value.untracked?.length || 0);
+						}
+					} catch {}
+					render();
+					if (gitStatus && gitStatus.branch !== "unknown") loadRecentCommits();
+				}
+				async function loadRecentCommits() {
+					if (!root || !gitStatus || gitStatus.branch === "unknown") return;
+					try {
+						const result = await (await fetch(`/solution-explorer/git-log?root=${encodeURIComponent(root)}`)).json();
+						if (result.ok && result.value) {
+							const commitsList = document.getElementById("sol-exp-commits-list");
+							if (commitsList) if (result.value.length === 0) commitsList.textContent = t("scm.log.empty");
+							else commitsList.innerHTML = result.value.slice(0, 5).map((commit) => `<div style="margin-bottom:4px;cursor:pointer" title="${commit.message}"><span style="color:var(--dsw-alias-label-primary)">${commit.shortHash}</span> ${commit.message.substring(0, 50)}${commit.message.length > 50 ? "..." : ""}</div>`).join("");
+						}
+					} catch (err) {
+						console.error("Failed to load commits:", err);
+					}
+				}
+				async function doStage(files) {
+					if (!root) return;
+					await fetch("/solution-explorer/git-stage", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({
+							root,
+							files
+						})
+					});
+					await loadGitStatus();
+				}
+				async function doUnstage(files) {
+					if (!root) return;
+					await fetch("/solution-explorer/git-unstage", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({
+							root,
+							files
+						})
+					});
+					await loadGitStatus();
+				}
+				async function doDiscard(files) {
+					if (!root) return;
+					await fetch("/solution-explorer/git-discard", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({
+							root,
+							files
+						})
+					});
+					await loadGitStatus();
+					await loadTree();
+				}
+				async function doCommit() {
+					if (!root || !commitMessage.trim()) return;
+					committing = true;
+					render();
+					try {
+						const result = await (await fetch("/solution-explorer/git-commit", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({
+								root,
+								message: commitMessage.trim()
+							})
+						})).json();
+						if (result.ok) {
+							commitMessage = "";
+							await loadGitStatus();
+							await loadTree();
+						} else alert(t("scm.commitFailed") + ": " + (result.error?.message || ""));
+					} catch (err) {
+						alert(t("scm.commitFailed") + ": " + err.message);
+					}
+					committing = false;
+					render();
+				}
+				async function searchFiles(query) {
+					searchQuery = query;
+					if (!query.trim()) {
+						searching = false;
+						searchResults = [];
+						render();
+						return;
+					}
+					searching = true;
+					render();
+					try {
+						const result = await (await fetch(`/solution-explorer/search?root=${encodeURIComponent(root)}&q=${encodeURIComponent(query)}`)).json();
+						if (searchQuery !== query) return;
+						if (result.ok) searchResults = result.value;
+						render();
+					} catch {
+						render();
+					}
+				}
+				function buildHTML() {
+					const activityBarHTML = `
         <div class="sol-exp-activity">
-          <div class="sol-exp-activity-btn ${currentTab === 'explorer' ? 'active' : ''}" onclick="window.__solExpTab('explorer')" title="${t('panel.explorer')}">
+          <div class="sol-exp-activity-btn ${currentTab === "explorer" ? "active" : ""}" onclick="window.__solExpTab('explorer')" title="${t("panel.explorer")}">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h5l1.5 1.5h6a1 1 0 0 1 1 1V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
           </div>
-          <div class="sol-exp-activity-btn ${currentTab === 'search' ? 'active' : ''}" onclick="window.__solExpTab('search')" title="${t('file.search')}">
+          <div class="sol-exp-activity-btn ${currentTab === "search" ? "active" : ""}" onclick="window.__solExpTab('search')" title="${t("file.search")}">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="4" stroke="currentColor" stroke-width="1.3"/><path d="M9.8 9.8L14 14" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
           </div>
-          <div class="sol-exp-activity-btn ${currentTab === 'scm' ? 'active' : ''}" onclick="window.__solExpTab('scm')" title="${t('panel.scm')}">
+          <div class="sol-exp-activity-btn ${currentTab === "scm" ? "active" : ""}" onclick="window.__solExpTab('scm')" title="${t("panel.scm")}">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="5" cy="3.5" r="1.5" stroke="currentColor" stroke-width="1.2"/><circle cx="5" cy="12.5" r="1.5" stroke="currentColor" stroke-width="1.2"/><circle cx="11.5" cy="7" r="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M5 5v5.5M11.5 8.5c0 2.2-1.3 3-4.2 3" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
-            ${gitChangesCount > 0 ? `<span class="sol-exp-activity-badge">${gitChangesCount}</span>` : ''}
+            ${gitChangesCount > 0 ? `<span class="sol-exp-activity-badge">${gitChangesCount}</span>` : ""}
           </div>
           </div>
-      `
-      let contentHTML = ''
-      if (currentTab === 'scm') contentHTML = buildSCMContent()
-      else if (currentTab === 'search') contentHTML = buildSearchContent()
-      else contentHTML = buildExplorerContent()
-      return `
+      `;
+					let contentHTML = "";
+					if (currentTab === "scm") contentHTML = buildSCMContent();
+					else if (currentTab === "search") contentHTML = buildSearchContent();
+					else contentHTML = buildExplorerContent();
+					return `
         <div class="sol-exp-panel" ondragover="event.preventDefault()" ondrop="event.preventDefault();window.__solExpDrop('', event)" oncontextmenu="window.__solExpPanelContextMenu(event)">
           <div class="sol-exp-activity">${activityBarHTML}</div>
           <div class="sol-exp-body"><div class="sol-exp-main">${contentHTML}</div></div>
         </div>
-      `
-    }
-    function buildSearchContent(): string {
-      const searchPlaceholder = t('file.search')
-      let contentHTML = ''
-      if (searching) {
-        if (searchResults.length === 0) { contentHTML = `<div class="sol-exp-empty">${document.documentElement.lang?.startsWith('zh') ? '无匹配文件' : 'No matching files'}</div>` }
-        else {
-          contentHTML = '<div class="sol-exp-search-results">' +
-            searchResults.map((r: any) => {
-              // Escape single quotes AND backslashes: Windows paths would
-              // otherwise lose separators when the inline JS parses them.
-              const pathJs = r.path.replace(/'/g, "\\'").replace(/\\/g, "\\\\")
-              return `
-              <div class="sol-exp-search-item ${selectedPath === r.path ? 'sol-exp-selected' : ''}"
+      `;
+				}
+				function buildSearchContent() {
+					const searchPlaceholder = t("file.search");
+					let contentHTML = "";
+					if (searching) if (searchResults.length === 0) contentHTML = `<div class="sol-exp-empty">${document.documentElement.lang?.startsWith("zh") ? "无匹配文件" : "No matching files"}</div>`;
+					else contentHTML = "<div class=\"sol-exp-search-results\">" + searchResults.map((r) => {
+						const pathJs = r.path.replace(/'/g, "\\'").replace(/\\/g, "\\\\");
+						return `
+              <div class="sol-exp-search-item ${selectedPath === r.path ? "sol-exp-selected" : ""}"
                    onclick="window.__solExpSelectFile('${pathJs}')"
                    data-sol-exp-path="${escapeHtml(r.path)}"
                    oncontextmenu="event.preventDefault();event.stopPropagation();window.__solExpContextMenu(this.dataset.solExpPath||'', event.pageX, event.pageY)">
-                <span class="sol-exp-icon">${r.type === 'directory' ? '📁' : '📄'}</span>
+                <span class="sol-exp-icon">${r.type === "directory" ? "📁" : "📄"}</span>
                 <span class="sol-exp-name">${escapeHtml(r.name)}</span>
                 <span class="sol-exp-path">${escapeHtml(r.path)}</span>
               </div>
-            `
-            }).join('') + '</div>'
-        }
-      } else { contentHTML = `<div class="sol-exp-empty">${document.documentElement.lang?.startsWith('zh') ? '输入关键词搜索文件' : 'Type to search files'}</div>` }
-      return `
-        <div class="sol-exp-header"><span class="sol-exp-title">${root ? root.split(/[\\\/]/).pop() || root : ''}</span></div>
+            `;
+					}).join("") + "</div>";
+					else contentHTML = `<div class="sol-exp-empty">${document.documentElement.lang?.startsWith("zh") ? "输入关键词搜索文件" : "Type to search files"}</div>`;
+					return `
+        <div class="sol-exp-header"><span class="sol-exp-title">${root ? root.split(/[\\\/]/).pop() || root : ""}</span></div>
         <div class="sol-exp-search">
           <svg class="sol-exp-search-icon" width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
           <input type="text" class="sol-exp-search-input" placeholder="${searchPlaceholder}" value="${searchQuery}" oninput="window.__solExpSearch(this.value)" onkeydown="if(event.key==='Escape'){this.value='';window.__solExpSearch('')}"/>
         </div>
         <div class="sol-exp-content">${contentHTML}</div>
-      `
-    }
-    function buildExplorerContent(): string {
-      const emptyText = t('panel.empty')
-      let contentHTML = ''
-      if (loading) { contentHTML = `<div class="sol-exp-loading">${t('loading')}</div>` }
-      else if (error) { contentHTML = `<div class="sol-exp-error">${error}</div>` }
-      // Search results belong to the Search tab only; the explorer tab always
-      // shows the file tree (or the empty hint).
-      else if (treeState) { contentHTML = '<div class="sol-exp-tree" oncontextmenu="event.preventDefault();event.stopPropagation();window.__solExpContextMenu(\'\', event.pageX, event.pageY, false)" ondragover="event.preventDefault();event.stopPropagation()" ondrop="event.preventDefault();event.stopPropagation();window.__solExpDrop(\'\', event)">' + (treeState.children || []).map((c: any) => renderTreeNode(c, 0)).join('') + '</div>' }
-      else { contentHTML = `<div class="sol-exp-empty">${emptyText}</div>` }
-      return `
+      `;
+				}
+				function buildExplorerContent() {
+					const emptyText = t("panel.empty");
+					let contentHTML = "";
+					if (loading) contentHTML = `<div class="sol-exp-loading">${t("loading")}</div>`;
+					else if (error) contentHTML = `<div class="sol-exp-error">${error}</div>`;
+					else if (treeState) contentHTML = "<div class=\"sol-exp-tree\" oncontextmenu=\"event.preventDefault();event.stopPropagation();window.__solExpContextMenu('', event.pageX, event.pageY, false)\" ondragover=\"event.preventDefault();event.stopPropagation()\" ondrop=\"event.preventDefault();event.stopPropagation();window.__solExpDrop('', event)\">" + (treeState.children || []).map((c) => renderTreeNode(c, 0)).join("") + "</div>";
+					else contentHTML = `<div class="sol-exp-empty">${emptyText}</div>`;
+					return `
         <div class="sol-exp-header">
-          <span class="sol-exp-title">${root ? root.split(/[\\\/]/).pop() || root : ''}</span>
+          <span class="sol-exp-title">${root ? root.split(/[\\\/]/).pop() || root : ""}</span>
           <div class="sol-exp-header-actions">
-            <button class="sol-exp-toolbar-btn" onclick="window.__solExpExpandAll()" title="${t('tree.expand')}"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2h4v4H2V2zm0 8h4v4H2v-4zm8-8h4v4h-4V2zm0 8h4v4h-4v-4z"/></svg></button>
-            <button class="sol-exp-toolbar-btn" onclick="window.__solExpCollapseAll()" title="${t('tree.collapse')}"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2h12v2H2V2zm0 5h12v2H2V7zm0 5h12v2H2v-2z"/></svg></button>
-            <button class="sol-exp-toolbar-btn" onclick="window.__solExpNew('file', '')" title="${document.documentElement.lang?.startsWith('zh') ? '新建文件' : 'New file'}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M5 2h4l3 3v9H5V2z"/><path d="M9 2v3h3"/></svg></button>
-            <button class="sol-exp-toolbar-btn" onclick="window.__solExpNew('dir', '')" title="${document.documentElement.lang?.startsWith('zh') ? '新建文件夹' : 'New folder'}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M2 4h4l1.5 1.5H14a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4z"/></svg></button>
-            <button class="sol-exp-toolbar-btn" onclick="window.__solExpRefresh()" title="${document.documentElement.lang?.startsWith('zh') ? '刷新' : 'Refresh'}"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2 8a6 6 0 0 1 10.47-4.02L14 5.5V2h1v5h-5V6h2.33A4.5 4.5 0 0 0 3.5 8H2zm12 0a6 6 0 0 1-10.47 4.02L2 10.5V14H1V9h5v1H3.67A4.5 4.5 0 0 0 12.5 8H14z"/></svg></button>
+            <button class="sol-exp-toolbar-btn" onclick="window.__solExpExpandAll()" title="${t("tree.expand")}"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2h4v4H2V2zm0 8h4v4H2v-4zm8-8h4v4h-4V2zm0 8h4v4h-4v-4z"/></svg></button>
+            <button class="sol-exp-toolbar-btn" onclick="window.__solExpCollapseAll()" title="${t("tree.collapse")}"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2h12v2H2V2zm0 5h12v2H2V7zm0 5h12v2H2v-2z"/></svg></button>
+            <button class="sol-exp-toolbar-btn" onclick="window.__solExpNew('file', '')" title="${document.documentElement.lang?.startsWith("zh") ? "新建文件" : "New file"}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M5 2h4l3 3v9H5V2z"/><path d="M9 2v3h3"/></svg></button>
+            <button class="sol-exp-toolbar-btn" onclick="window.__solExpNew('dir', '')" title="${document.documentElement.lang?.startsWith("zh") ? "新建文件夹" : "New folder"}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M2 4h4l1.5 1.5H14a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4z"/></svg></button>
+            <button class="sol-exp-toolbar-btn" onclick="window.__solExpRefresh()" title="${document.documentElement.lang?.startsWith("zh") ? "刷新" : "Refresh"}"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2 8a6 6 0 0 1 10.47-4.02L14 5.5V2h1v5h-5V6h2.33A4.5 4.5 0 0 0 3.5 8H2zm12 0a6 6 0 0 1-10.47 4.02L2 10.5V14H1V9h5v1H3.67A4.5 4.5 0 0 0 12.5 8H14z"/></svg></button>
           </div>
         </div>
         <div class="sol-exp-content">${contentHTML}</div>
-      `
-    }
-    function buildSCMContent(): string {
-      if (!root) { return `<div class="sol-exp-content"><div class="sol-exp-empty">${t('panel.empty')}</div></div>` }
-      const status = gitStatus
-      const isRepo = status && status.branch !== 'unknown'
-      const staged = status?.staged || []
-      const unstaged = status?.unstaged || []
-      const untracked = status?.untracked || []
-      const allChanges = [...unstaged, ...untracked]
-
-      // Non-repo workspaces get a single hint instead of an empty commit box.
-      if (!isRepo) { return `<div class="sol-exp-content"><div class="sol-exp-empty">${t('scm.notRepo')}</div></div>` }
-
-      let sectionsHTML = ''
-
-      // Commit box
-      sectionsHTML += `
+      `;
+				}
+				function buildSCMContent() {
+					if (!root) return `<div class="sol-exp-content"><div class="sol-exp-empty">${t("panel.empty")}</div></div>`;
+					const status = gitStatus;
+					const isRepo = status && status.branch !== "unknown";
+					const staged = status?.staged || [];
+					const unstaged = status?.unstaged || [];
+					const untracked = status?.untracked || [];
+					const allChanges = [...unstaged, ...untracked];
+					if (!isRepo) return `<div class="sol-exp-content"><div class="sol-exp-empty">${t("scm.notRepo")}</div></div>`;
+					let sectionsHTML = "";
+					sectionsHTML += `
         <div class="sol-exp-commit-box">
-          <textarea class="sol-exp-commit-input" placeholder="${t('scm.commit.placeholder')}${status?.branch && status.branch !== 'unknown' ? ' (' + status.branch + ')' : ''}" oninput="window.__solExpCommitMsg(this.value)">${escapeHtml(commitMessage)}</textarea>
+          <textarea class="sol-exp-commit-input" placeholder="${t("scm.commit.placeholder")}${status?.branch && status.branch !== "unknown" ? " (" + status.branch + ")" : ""}" oninput="window.__solExpCommitMsg(this.value)">${escapeHtml(commitMessage)}</textarea>
           <div class="sol-exp-commit-row">
-            <button class="sol-exp-commit-btn" onclick="window.__solExpCommit()" ${committing || !commitMessage.trim() ? 'disabled' : ''}>${committing ? t('scm.committing') : t('scm.commit.button')}</button>
+            <button class="sol-exp-commit-btn" onclick="window.__solExpCommit()" ${committing || !commitMessage.trim() ? "disabled" : ""}>${committing ? t("scm.committing") : t("scm.commit.button")}</button>
           </div>
         </div>
-      `
-
-      // Changes section (unstaged + untracked)
-      sectionsHTML += `
+      `;
+					sectionsHTML += `
         <div class="sol-exp-scm-section">
-          <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('changes')"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4"/></svg>${t('scm.changes')}<span class="sol-exp-scm-header-actions">
-            <button class="sol-exp-hdr-btn" title="${t('scm.refresh')}" onclick="event.stopPropagation();window.__solExpRefreshSCM()"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2 8a6 6 0 0 1 10.47-4.02L14 5.5V2h1v5h-5V6h2.33A4.5 4.5 0 0 0 3.5 8H2zm12 0a6 6 0 0 1-10.47 4.02L2 10.5V14H1V9h5v1H3.67A4.5 4.5 0 0 0 12.5 8H14z"/></svg></button>
-            ${allChanges.length > 0 ? `<button class="sol-exp-hdr-btn" title="${t('scm.stageAll')}" onclick="event.stopPropagation();window.__solExpStageAll()"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 2v12M2 8h12"/></svg></button>` : ''}
-            ${allChanges.length > 0 ? `<button class="sol-exp-hdr-btn danger" title="${t('scm.discardAll')}" onclick="event.stopPropagation();window.__solExpDiscardAll()"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3l10 10M13 3L3 13"/></svg></button>` : ''}
+          <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('changes')"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4"/></svg>${t("scm.changes")}<span class="sol-exp-scm-header-actions">
+            <button class="sol-exp-hdr-btn" title="${t("scm.refresh")}" onclick="event.stopPropagation();window.__solExpRefreshSCM()"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2 8a6 6 0 0 1 10.47-4.02L14 5.5V2h1v5h-5V6h2.33A4.5 4.5 0 0 0 3.5 8H2zm12 0a6 6 0 0 1-10.47 4.02L2 10.5V14H1V9h5v1H3.67A4.5 4.5 0 0 0 12.5 8H14z"/></svg></button>
+            ${allChanges.length > 0 ? `<button class="sol-exp-hdr-btn" title="${t("scm.stageAll")}" onclick="event.stopPropagation();window.__solExpStageAll()"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 2v12M2 8h12"/></svg></button>` : ""}
+            ${allChanges.length > 0 ? `<button class="sol-exp-hdr-btn danger" title="${t("scm.discardAll")}" onclick="event.stopPropagation();window.__solExpDiscardAll()"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3l10 10M13 3L3 13"/></svg></button>` : ""}
           </span><span class="sol-exp-scm-section-count">${allChanges.length}</span></div>
-          ${allChanges.length === 0 ? `<div style="padding:4px 12px 8px 24px;font-size:12px;color:var(--dsw-alias-label-tertiary,#6e6e6e)">${t('scm.changes.none')}</div>` : ''}
-          ${allChanges.map((item: any) => buildSCMItem(item, 'changes')).join('')}
+          ${allChanges.length === 0 ? `<div style="padding:4px 12px 8px 24px;font-size:12px;color:var(--dsw-alias-label-tertiary,#6e6e6e)">${t("scm.changes.none")}</div>` : ""}
+          ${allChanges.map((item) => buildSCMItem(item, "changes")).join("")}
         </div>
-      `
-
-      // Staged changes section (only if there are staged changes)
-      if (staged.length > 0) {
-        sectionsHTML += `
+      `;
+					if (staged.length > 0) sectionsHTML += `
           <div class="sol-exp-scm-section">
-            <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('staged')"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4"/></svg>${t('scm.staged')}<span class="sol-exp-scm-header-actions">
-              <button class="sol-exp-hdr-btn" title="${t('scm.unstageAll')}" onclick="event.stopPropagation();window.__solExpUnstageAll()"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 14V3M3.5 7.5L8 3l4.5 4.5"/></svg></button>
+            <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('staged')"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4"/></svg>${t("scm.staged")}<span class="sol-exp-scm-header-actions">
+              <button class="sol-exp-hdr-btn" title="${t("scm.unstageAll")}" onclick="event.stopPropagation();window.__solExpUnstageAll()"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 14V3M3.5 7.5L8 3l4.5 4.5"/></svg></button>
             </span><span class="sol-exp-scm-section-count">${staged.length}</span></div>
-            ${staged.map((item: any) => buildSCMItem(item, 'staged')).join('')}
+            ${staged.map((item) => buildSCMItem(item, "staged")).join("")}
           </div>
-        `
-      }
-
-      // Repository section (branch + recent commits): secondary info at the bottom.
-      sectionsHTML += `
+        `;
+					sectionsHTML += `
         <div class="sol-exp-scm-section">
-          <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('repository')"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4"/></svg>${t('scm.repository')}</div>
+          <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('repository')"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4"/></svg>${t("scm.repository")}</div>
           <div style="padding:4px 12px 8px 24px">
-            <div style="font-size:12px;color:var(--dsw-alias-label-secondary);margin-bottom:4px">${t('scm.repository.branch')}: <span style="color:var(--dsw-alias-label-primary)">${status?.branch || ''}</span></div>
-            <div style="font-size:12px;color:var(--dsw-alias-label-secondary)">${t('scm.repository.commits')}</div>
+            <div style="font-size:12px;color:var(--dsw-alias-label-secondary);margin-bottom:4px">${t("scm.repository.branch")}: <span style="color:var(--dsw-alias-label-primary)">${status?.branch || ""}</span></div>
+            <div style="font-size:12px;color:var(--dsw-alias-label-secondary)">${t("scm.repository.commits")}</div>
             <div id="sol-exp-commits-list" style="margin-top:4px;font-size:12px;color:var(--dsw-alias-label-tertiary)">Loading...</div>
           </div>
         </div>
-      `
-
-      return `<div class="sol-exp-content">${sectionsHTML}</div>`
-    }
-    function buildSCMItem(item: any, section: 'staged' | 'changes'): string {
-      const statusChar = item.status
-      // Escape single quotes for the inline JS path; git porcelain paths use forward slashes.
-      const pathJs = item.path.replace(/'/g, "\\'")
-      const action = section === 'staged'
-        ? `<button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpUnstage(['${pathJs}'])" title="${t('scm.unstage')}">◦</button>`
-        : `<button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpStage(['${pathJs}'])" title="${t('scm.stage')}">+</button>
-           <button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpDiscard(['${pathJs}'])" title="${t('scm.discard')}">✕</button>`
-      return `
-        <div class="sol-exp-scm-item" title="${t('file.open')}" onclick="window.__solExpSelectFile('${pathJs}')">
-          <span class="sol-exp-scm-status sol-exp-git-${statusChar === '?' ? '\\?' : statusChar}">${statusChar}</span>
+      `;
+					return `<div class="sol-exp-content">${sectionsHTML}</div>`;
+				}
+				function buildSCMItem(item, section) {
+					const statusChar = item.status;
+					const pathJs = item.path.replace(/'/g, "\\'");
+					const action = section === "staged" ? `<button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpUnstage(['${pathJs}'])" title="${t("scm.unstage")}">◦</button>` : `<button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpStage(['${pathJs}'])" title="${t("scm.stage")}">+</button>
+           <button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpDiscard(['${pathJs}'])" title="${t("scm.discard")}">✕</button>`;
+					const staged = section === "staged";
+					return `
+        <div class="sol-exp-scm-item" title="${t("file.open")}" onclick="window.__solExpOpenDiff('${pathJs}', ${staged})">
+          <span class="sol-exp-scm-status sol-exp-git-${statusChar === "?" ? "\\?" : statusChar}">${statusChar}</span>
           <span class="sol-exp-scm-path">${escapeHtml(item.path)}</span>
           <span class="sol-exp-scm-actions">${action}</span>
         </div>
-      `
-    }
-    function renderTreeNode(node: any, depth: number): string {
-      if (!node) return ''
-      const isDir = node.type === 'directory'
-      const isExpanded = expandedPaths.has(node.path)
-      const isSelected = selectedPaths.has(node.path)
-      const isCut = clipboard?.mode === 'cut' && clipboard.paths.includes(node.path)
-      const isDropTarget = isDir && dropTargetPath === node.path && dragPaths.length > 0
-      const hasChildren = isDir && node.children && node.children.length > 0
-      const padding = 12 + depth * 16
-      const pathJs = node.path.replace(/'/g, "\\'").replace(/\\/g, "\\\\")
-      const chevron = isDir
-        ? (hasChildren ? `<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="transform:${isExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};transition:transform .15s ease"><path d="M6 4l4 4-4 4"/></svg>` : '<span style="width:16px;display:inline-block"></span>')
-        : '<span style="width:16px;display:inline-block"></span>'
-      const icon = isDir ? (isExpanded ? '📂' : '📁') : '📄'
-      const childrenHTML = isDir && isExpanded && hasChildren ? `<div class="sol-exp-tree-children">${node.children.map((c: any) => renderTreeNode(c, depth + 1)).join('')}</div>` : ''
-      return `
+      `;
+				}
+				function renderTreeNode(node, depth) {
+					if (!node) return "";
+					const isDir = node.type === "directory";
+					const isExpanded = expandedPaths.has(node.path);
+					const isSelected = selectedPaths.has(node.path);
+					const isCut = clipboard?.mode === "cut" && clipboard.paths.includes(node.path);
+					const isDropTarget = isDir && dropTargetPath === node.path && dragPaths.length > 0;
+					const hasChildren = isDir && node.children && node.children.length > 0;
+					const padding = 12 + depth * 16;
+					const pathJs = node.path.replace(/'/g, "\\'").replace(/\\/g, "\\\\");
+					const chevron = isDir ? hasChildren ? `<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="transform:${isExpanded ? "rotate(90deg)" : "rotate(0deg)"};transition:transform .15s ease"><path d="M6 4l4 4-4 4"/></svg>` : "<span style=\"width:16px;display:inline-block\"></span>" : "<span style=\"width:16px;display:inline-block\"></span>";
+					const icon = isDir ? isExpanded ? "📂" : "📁" : "📄";
+					const childrenHTML = isDir && isExpanded && hasChildren ? `<div class="sol-exp-tree-children">${node.children.map((c) => renderTreeNode(c, depth + 1)).join("")}</div>` : "";
+					return `
         <div class="sol-exp-tree-node-wrapper">
-          <div class="sol-exp-tree-node ${isSelected ? 'sol-exp-selected' : ''}${isCut ? ' sol-exp-cut' : ''}${isDropTarget ? ' sol-exp-drop-target' : ''}"
+          <div class="sol-exp-tree-node ${isSelected ? "sol-exp-selected" : ""}${isCut ? " sol-exp-cut" : ""}${isDropTarget ? " sol-exp-drop-target" : ""}"
                style="padding-left:${padding}px"
                draggable="true"
                onclick="window.__solExpSelect('${pathJs}', event.shiftKey, event.ctrlKey || event.metaKey, ${isDir})"
-               ${isDir ? '' : `ondblclick="window.__solExpOpenFile('${pathJs}')"`}
+               ${isDir ? "" : `ondblclick="window.__solExpOpenFile('${pathJs}')"`}
                ondragstart="window.__solExpDragStart('${pathJs}')"
-               ${isDir ? `ondragover="event.preventDefault();event.stopPropagation();window.__solExpDragOver('${pathJs}')" ondrop="event.preventDefault();event.stopPropagation();window.__solExpDrop('${pathJs}', event)"` : ''}
+               ${isDir ? `ondragover="event.preventDefault();event.stopPropagation();window.__solExpDragOver('${pathJs}')" ondrop="event.preventDefault();event.stopPropagation();window.__solExpDrop('${pathJs}', event)"` : ""}
                data-sol-exp-path="${escapeHtml(node.path)}"
-               data-sol-exp-isdir="${isDir ? '1' : '0'}"
+               data-sol-exp-isdir="${isDir ? "1" : "0"}"
                oncontextmenu="event.preventDefault();event.stopPropagation();window.__solExpContextMenu(this.dataset.solExpPath||'', event.pageX, event.pageY, this.dataset.solExpIsdir === '1')">
             <span class="sol-exp-chevron">${chevron}</span>
             <span class="sol-exp-file-icon">${icon}</span>
             <span class="sol-exp-file-name">${escapeHtml(node.name)}</span>
-            ${node.gitStatus ? `<span class="sol-exp-git-letter sol-exp-git-${node.gitStatus === '?' ? 'q' : node.gitStatus}">${node.gitStatus}</span>` : ''}
+            ${node.gitStatus ? `<span class="sol-exp-git-letter sol-exp-git-${node.gitStatus === "?" ? "q" : node.gitStatus}">${node.gitStatus}</span>` : ""}
           </div>
           ${childrenHTML}
         </div>
-      `
-    }
-    function escapeHtml(str: string): string {
-      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/\\\\/g, '\\92;')
-    }
-
-    let searchTimer: any
-    window.__solExpTab = (tab: string) => { currentTab = tab as any; render(); if (tab === 'scm') loadGitStatus() }
-    window.__solExpToggleExpand = (path: string) => { if (expandedPaths.has(path)) expandedPaths.delete(path); else expandedPaths.add(path); render() }
-    window.__solExpSelectFile = async (path: string) => {
-      selectedPath = path
-      if (typeof window.__solExpOpenFile === 'function') window.__solExpOpenFile(path)
-    }
-    window.__solExpClearSelection = () => { if (selectedPaths.size || selectedPath) { selectedPaths = new Set(); selectionAnchor = null; selectedPath = null; render() } }
-    // Tree selection: plain click selects; Ctrl/Cmd toggles; Shift range-selects.
-    window.__solExpSelect = (path: string, shift: boolean, ctrl: boolean, isDir: boolean) => {
-      if (ctrl) {
-        if (selectedPaths.has(path)) selectedPaths.delete(path)
-        else selectedPaths.add(path)
-        selectionAnchor = path
-      } else if (shift && selectionAnchor) {
-        const order: string[] = []
-        const collect = (n: any) => { order.push(n.path); for (const c of (n.children || [])) collect(c) }
-        if (treeState) collect(treeState)
-        const a = order.indexOf(selectionAnchor), b = order.indexOf(path)
-        if (a >= 0 && b >= 0) {
-          const [lo, hi] = a < b ? [a, b] : [b, a]
-          selectedPaths = new Set(order.slice(lo, hi + 1))
-        } else {
-          selectedPaths = new Set([path]); selectionAnchor = path
-        }
-      } else {
-        selectedPaths = new Set([path])
-        selectionAnchor = path
-      }
-      selectedPath = path
-      if (isDir) { if (expandedPaths.has(path)) expandedPaths.delete(path); else expandedPaths.add(path) }
-      render()
-    }
-    // ── clipboard: copy / cut / paste ──────────────────────────────
-    window.__solExpCopy = () => { if (selectedPaths.size) { clipboard = { paths: [...selectedPaths], mode: 'copy' }; render() } }
-    window.__solExpCut = () => { if (selectedPaths.size) { clipboard = { paths: [...selectedPaths], mode: 'cut' }; render() } }
-    window.__solExpPaste = async (target: string) => {
-      if (!clipboard || !clipboard.paths.length || !root) return
-      const { paths, mode } = clipboard
-      clipboard = null
-      // Resolve the paste target: a directory, the parent of a file, or root.
-      let targetDir = target
-      if (targetDir) {
-        const find = (n: any): any => {
-          if (n.path === target) return n
-          for (const c of (n.children || [])) { const f = find(c); if (f) return f }
-          return null
-        }
-        const node = treeState ? find(treeState) : null
-        if (!node || node.type !== 'directory') {
-          const i = targetDir.lastIndexOf('/')
-          targetDir = i > 0 ? targetDir.slice(0, i) : ''
-        }
-      }
-      // Friendly guards before hitting the host: cutting into the same directory
-      // is a no-op, and pasting a directory into itself (cut OR copy) is rejected —
-      // fs.cp itself errors with EINVAL for copy-into-own-subtree. Tree paths use
-      // backslashes on Windows, so normalize before comparing.
-      const norm = (p: string) => p.replace(/\\/g, '/')
-      for (const raw of paths) {
-        const src = norm(raw)
-        const tgt = norm(targetDir)
-        const parent = src.includes('/') ? src.slice(0, src.lastIndexOf('/')) : ''
-        if (mode === 'cut' && parent === tgt) { alert('已在目标目录，无需移动'); return }
-        if (tgt && (tgt === src || tgt.startsWith(src + '/'))) { alert('不能移动到自身内部'); return }
-      }
-      let done = 0, failed = 0
-      for (const src of paths) {
-        try {
-          const resp = await fetch('/solution-explorer/paste', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ root, mode, source: src, targetDir }) })
-          const result = await resp.json()
-          if (result.ok) done++
-          else { failed++; console.warn('[sol-exp] paste failed', src, result.error) }
-        } catch (err: any) { failed++; console.warn('[sol-exp] paste error', src, err) }
-      }
-      if (failed) alert(failed + ' 项粘贴失败')
-      render(); loadTree(); loadGitStatus()
-    }
-    // ── create file / folder ──────────────────────────────────────
-    window.__solExpNew = async (type: 'file' | 'dir', dir: string) => {
-      if (!root) return
-      const name = window.prompt(type === 'file' ? '输入文件名' : '输入文件夹名')
-      if (!name || !name.trim()) return
-      const clean = name.trim()
-      const rel = dir ? dir.replace(/\\/g, '/') + '/' + clean : clean
-      try {
-        const resp = await fetch('/solution-explorer/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ root, path: rel, type }) })
-        const result = await resp.json()
-        if (!result.ok) { alert('创建失败: ' + (result.error?.message || '')); return }
-        loadTree(); loadGitStatus()
-      } catch (err: any) { alert('创建失败: ' + (err.message || String(err))) }
-    }
-    // ── tree drag & drop (move) ────────────────────────────────────
-    window.__solExpDragStart = (path: string) => {
-      dragPaths = selectedPaths.has(path) ? [...selectedPaths] : [path]
-    }
-    window.__solExpDragOver = (path: string, evt: DragEvent) => {
-      // Toggle the highlight directly without re-rendering: rebuilding the tree
-      // mid-drag cancels the drag operation in the browser.
-      const clear = () => document.querySelectorAll('.sol-exp-drop-target').forEach(el => el.classList.remove('sol-exp-drop-target'))
-      clear()
-      if (dragPaths.length && !dragPaths.includes(path)) {
-        const node = (evt.target as HTMLElement)?.closest('.sol-exp-tree-node')
-        if (node) node.classList.add('sol-exp-drop-target')
-      }
-      dropTargetPath = path
-    }
-    window.__solExpDrop = async (path: string, evt: DragEvent) => {
-      const files = evt.dataTransfer?.files
-      if (files && files.length > 0) { await window.__solExpDropFiles!(path, files); return }
-      const targetDir = path
-      const sources = dragPaths
-      dragPaths = []; dropTargetPath = null
-      document.querySelectorAll('.sol-exp-drop-target').forEach(el => el.classList.remove('sol-exp-drop-target'))
-      if (!root || !sources.length) { render(); return }
-      // Same-dir / into-itself guards (paths may use backslashes on Windows).
-      {
-        const norm = (p: string) => p.replace(/\\/g, '/')
-        const tgt = norm(targetDir)
-        for (const raw of sources) {
-          const src = norm(raw)
-          const parent = src.includes('/') ? src.slice(0, src.lastIndexOf('/')) : ''
-          if (src === tgt || tgt.startsWith(src + '/')) { alert('不能移动到自身内部'); render(); return }
-          if (parent === tgt) { alert('已在目标目录，无需移动'); render(); return }
-        }
-      }
-      let done = 0, failed = 0
-      for (const src of sources) {
-        try {
-          const resp = await fetch('/solution-explorer/move', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ root, source: src, targetDir }) })
-          const result = await resp.json()
-          if (result.ok) done++
-          else { failed++; console.warn('[sol-exp] move failed', src, result.error) }
-        } catch (err: any) { failed++; console.warn('[sol-exp] move error', src, err) }
-      }
-      if (failed) alert(failed + ' 项移动失败')
-      render(); loadTree(); loadGitStatus()
-    }
-    // ── OS drag-in: copy files into the workspace ──────────────────
-    const bytesToBase64 = (bytes: Uint8Array): string => {
-      let binary = ''
-      const chunk = 0x8000
-      for (let i = 0; i < bytes.length; i += chunk) {
-        binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)))
-      }
-      return btoa(binary)
-    }
-    window.__solExpDropFiles = async (target: string, files: FileList | File[]) => {
-      const targetDir = target || ''
-      let done = 0, failed = 0, skipped = 0
-      for (const f of Array.from(files)) {
-        if (f.size > 50 * 1024 * 1024) { skipped++; alert('文件过大（>50MB）跳过: ' + f.name); continue }
-        try {
-          const bytes = new Uint8Array(await f.arrayBuffer())
-          const head = bytes.subarray(0, Math.min(4096, bytes.length))
-          const binary = head.includes(0)
-          const content = binary ? bytesToBase64(bytes) : new TextDecoder('utf-8').decode(bytes)
-          const rel = targetDir ? targetDir + '/' + f.name : f.name
-          const resp = await fetch('/solution-explorer/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ root, path: rel, content, binary }) })
-          const result = await resp.json()
-          if (result.ok) done++
-          else { failed++; console.warn('[sol-exp] upload failed', f.name, result.error) }
-        } catch (err: any) { failed++; console.warn('[sol-exp] upload error', f.name, err) }
-      }
-      if (failed) alert(failed + ' 个文件上传失败')
-      render(); loadTree(); loadGitStatus()
-    }
-    window.__solExpCollapseAll = () => { expandedPaths = new Set(); render() }
-    window.__solExpExpandAll = () => {
-      const paths = new Set<string>()
-      const collect = (n: any) => { if (n?.type === 'directory') { paths.add(n.path); for (const c of (n.children || [])) collect(c) } }
-      if (treeState) collect(treeState); expandedPaths = paths; render()
-    }
-    window.__solExpRefresh = () => { loadTree(); loadGitStatus() }
-    window.__solExpClearSearch = () => { searchQuery = ''; searching = false; searchResults = []; render() }
-    window.__solExpSearch = (query: string) => { if (searchTimer) clearTimeout(searchTimer); searchTimer = setTimeout(() => searchFiles(query), 300) }
-    window.__solExpRefreshSCM = () => { loadGitStatus() }
-    window.__solExpCommitMsg = (msg: string) => { commitMessage = msg; render() }
-    window.__solExpCommit = () => { doCommit() }
-    window.__solExpStage = (files: string[]) => { doStage(files) }
-    window.__solExpUnstage = (files: string[]) => { doUnstage(files) }
-    window.__solExpDiscard = (files: string[]) => { doDiscard(files) }
-    window.__solExpStageAll = () => { const all = [...(gitStatus?.unstaged || []), ...(gitStatus?.untracked || [])].map((i: any) => i.path); if (all.length) doStage(all) }
-    window.__solExpUnstageAll = () => { const all = (gitStatus?.staged || []).map((i: any) => i.path); if (all.length) doUnstage(all) }
-    window.__solExpDiscardAll = () => {
-      const all = [...(gitStatus?.unstaged || []), ...(gitStatus?.untracked || [])].map((i: any) => i.path)
-      if (all.length && window.confirm(t('scm.discardAllConfirm'))) doDiscard(all)
-    }
-        let contextMenuEl: HTMLElement | null = null
-    function hideContextMenu() { if (contextMenuEl) { contextMenuEl.remove(); contextMenuEl = null; } }
-    document.addEventListener('click', hideContextMenu)
-    // Global drag guards: the browser would otherwise open/ask about dropped
-    // files when the drop lands on an element without an inline preventDefault
-    // (scrollbars, panel edges, re-rendered nodes). These cover the whole panel.
-    const dragGuard = (e: Event) => { if (activeEl?.contains(e.target as Node)) e.preventDefault() }
-    document.addEventListener('dragenter', dragGuard)
-    document.addEventListener('dragover', dragGuard)
-    document.addEventListener('drop', dragGuard)
-    // Clicking blank space inside the panel clears the tree selection.
-    document.addEventListener('click', (e) => {
-      if (!activeEl?.contains(e.target as Node)) return
-      const el = e.target as HTMLElement
-      if (el.closest('.sol-exp-tree-node') || el.closest('.sol-exp-search-item') || el.closest('.sol-exp-scm-item') || el.closest('.sol-exp-context-menu')) return
-      if (selectedPaths.size || selectedPath) { selectedPaths = new Set(); selectionAnchor = null; selectedPath = null; render() }
-    })
-    document.addEventListener('dragend', () => { if (dragPaths.length || dropTargetPath) { dragPaths = []; dropTargetPath = null; render() } })
-    // Panel-level right-click: skip the chrome (header / activity bar / commit box),
-    // otherwise show the blank-area paste menu.
-    window.__solExpPanelContextMenu = (evt: MouseEvent) => {
-      evt.preventDefault()
-      const el = evt.target as HTMLElement | null
-      if (el && (el.closest('.sol-exp-header') || el.closest('.sol-exp-activity') || el.closest('.sol-exp-commit-box'))) return
-      window.__solExpContextMenu!('', evt.pageX, evt.pageY, false)
-    }
-    window.__solExpContextMenu = (target: string, x: number, y: number, isDir = false) => {
-      hideContextMenu()
-      // Right-click on an unselected node selects it alone; on a selected node keeps the set.
-      if (target && !selectedPaths.has(target)) {
-        selectedPaths = new Set([target]); selectionAnchor = target; selectedPath = target
-      }
-      const menu = document.createElement('div'); menu.className = 'sol-exp-context-menu'
-      menu.style.left = Math.min(x, window.innerWidth - 160) + 'px'; menu.style.top = Math.min(y, window.innerHeight - 80) + 'px'
-      menu.addEventListener('click', (e) => e.stopPropagation()); menu.addEventListener('contextmenu', (e) => e.preventDefault())
-      const addItem = (label: string, danger: boolean, onClick: () => void) => {
-        const item = document.createElement('div'); item.className = 'sol-exp-context-menu-item' + (danger ? ' danger' : '')
-        item.textContent = label
-        item.addEventListener('click', () => { hideContextMenu(); onClick() })
-        menu.appendChild(item)
-      }
-      const targets = target && selectedPaths.has(target) ? [...selectedPaths] : (target ? [target] : [])
-      // New file / folder: available everywhere. A directory creates inside it,
-      // a file creates beside it (its parent), blank creates in the root.
-      const base = isDir ? target : (target ? (target.includes('/') ? target.slice(0, target.lastIndexOf('/')) : target.includes('\\') ? target.slice(0, target.lastIndexOf('\\')) : '') : '')
-      addItem('新建文件', false, () => window.__solExpNew!('file', base))
-      addItem('新建文件夹', false, () => window.__solExpNew!('dir', base))
-      if (targets.length) {
-        addItem('复制', false, () => { window.__solExpCopy!() })
-        addItem('剪切', false, () => { window.__solExpCut!() })
-        addItem('删除 (' + targets.length + ')', true, () => window.__solExpDeletePaths!(targets))
-        addItem('复制相对路径', false, () => navigator.clipboard.writeText(targets.join('\n')))
-        addItem('复制绝对路径', false, () => { const sep = root.endsWith('/') || root.endsWith('\\') ? '' : '/'; navigator.clipboard.writeText(targets.map(p => root + sep + p).join('\n')) })
-      }
-      if (clipboard && clipboard.paths.length) {
-        addItem('粘贴到此处' + (clipboard.mode === 'cut' ? '（剪切）' : ''), false, () => window.__solExpPaste!(isDir ? target : target || ''))
-      }
-      // Nothing to offer (no targets, no clipboard) — don't show an empty box.
-      if (menu.childNodes.length === 0) return
-      document.body.appendChild(menu); contextMenuEl = menu
-    }
-    window.__solExpDeletePaths = async (paths: string[]) => {
-      if (!root || !paths.length) return
-      if (!window.confirm('确定删除 ' + paths.length + ' 项？')) return
-      let done = 0, failed = 0
-      for (const p of paths) {
-        try {
-          const resp = await fetch('/solution-explorer/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ root, path: p }) })
-          const result = await resp.json()
-          if (result.ok) done++
-          else { failed++; console.warn('[sol-exp] delete failed', p, result.error) }
-        } catch (err: any) { failed++; console.warn('[sol-exp] delete error', p, err) }
-      }
-      for (const p of paths) selectedPaths.delete(p)
-      if (failed) alert(failed + ' 项删除失败')
-      render(); loadTree(); loadGitStatus()
-    }
-    window.__solExpDeleteFile = async (target: string) => { if (target) await window.__solExpDeletePaths!([target]) }
-    window.__solExpToggleSection = (id: string) => { const el = document.querySelector(`[data-section="${id}"]`); if (el) el.classList.toggle('collapsed') }
-
-    const PANEL_WIDTH = 280; const PANEL_MIN = 264; const PANEL_MAX = 420
-    let panelWidth = 0; let panelFrame: HTMLElement | null = null; let panelCol: HTMLDivElement | null = null
-    let shellTracks: string[] = []; let styleObs: MutationObserver | null = null
-    let sizeObs: ResizeObserver | null = null; let resizeHandle: HTMLDivElement | null = null
-    function parseGridTracks(input: string): string[] {
-      const tracks: string[] = []; let depth = 0; let current = ''
-      for (const char of input) {
-        if (char === '(') depth++; if (char === ')') depth = Math.max(0, depth - 1)
-        if (char === ' ' && depth === 0) { if (current !== '') { tracks.push(current); current = '' }; continue }
-        current += char
-      }
-      if (current !== '') tracks.push(current); return tracks
-    }
-    function trackPx(track: string): number { const m = /^(-?[\\d.]+)px$/.exec(track.trim()); return m === null ? 0 : Number(m[1]) }
-    function clampPanelWidth(px: number): number { return Math.min(PANEL_MAX, Math.max(PANEL_MIN, Math.round(px))) }
-    function findFrame(): HTMLElement | null {
-      const s = document.querySelector<HTMLElement>('[data-dsh-frame]')
-      if (s !== null) return s; return document.querySelector<HTMLElement>('[class*="sidebarCol"]')?.parentElement ?? null
-    }
-    function applyGrid(): void {
-      if (panelFrame === null || shellTracks.length !== 3) return
-      panelFrame.style.gridTemplateColumns = `${shellTracks[0]} minmax(0, 1fr) ${shellTracks[2]} ${Math.round(panelWidth)}px`
-      if (panelCol !== null) panelCol.style.visibility = panelWidth > 0 ? 'visible' : 'hidden'
-      if (resizeHandle !== null) { const w = panelFrame.getBoundingClientRect().width; resizeHandle.style.left = (w - panelWidth - 3) + 'px' }
-    }
-    function mountColumn(): void {
-      if (panelFrame !== null) return
-      const frame = findFrame(); if (frame === null) return
-      panelFrame = frame; panelCol = document.createElement('div')
-      panelCol.dataset.solutionExplorer = ''; panelCol.style.minWidth = '0'; panelCol.style.overflow = 'hidden'
-      panelCol.style.display = 'flex'; panelCol.style.flexDirection = 'column'
-      panelCol.style.borderLeft = '1px solid var(--dsw-alias-border-l2, #333)'
-      frame.appendChild(panelCol); activeEl = panelCol; render()
-      // Stop drag events at the panel (bubble phase, after our own target
-      // handlers ran) so the host app's whole-page image-drop overlay
-      // (ui-attachment) does not fire while dragging over our sidebar.
-      panelCol.addEventListener('dragenter', (e) => e.stopPropagation())
-      panelCol.addEventListener('dragover', (e) => e.stopPropagation())
-      panelCol.addEventListener('drop', (e) => e.stopPropagation())
-      resizeHandle = document.createElement('div'); resizeHandle.className = 'sol-exp-resize-handle'
-      resizeHandle.addEventListener('pointerdown', (e: PointerEvent) => {
-        e.preventDefault(); resizeHandle!.dataset.dragging = 'true'; resizeHandle!.setPointerCapture(e.pointerId)
-        const startX = e.clientX; const startWidth = panelWidth
-        const onMove = (me: PointerEvent) => { const dx = me.clientX - startX; panelWidth = clampPanelWidth(startWidth - dx); applyGrid() }
-        const onUp = () => { resizeHandle!.removeEventListener('pointermove', onMove); resizeHandle!.removeEventListener('pointerup', onUp); resizeHandle!.dataset.dragging = undefined }
-        resizeHandle!.addEventListener('pointermove', onMove); resizeHandle!.addEventListener('pointerup', onUp)
-      })
-      frame.appendChild(resizeHandle); applyGrid()
-      const syncGrid = (): void => {
-        if (panelFrame === null) return; const inline = panelFrame.style.gridTemplateColumns; if (inline === '') return
-        const tracks = parseGridTracks(inline)
-        if (tracks.length >= 2 && tracks.length <= 3) { shellTracks = tracks; applyGrid(); return }
-        if (tracks.length === 4 && shellTracks.length === 3) return
-      }
-      styleObs = new MutationObserver(syncGrid); styleObs.observe(frame, { attributes: true, attributeFilter: ['style'] })
-      sizeObs = new ResizeObserver(() => { applyGrid() }); sizeObs.observe(frame)
-      const initial = frame.style.gridTemplateColumns
-      if (initial !== '') { const tracks = parseGridTracks(initial); if (tracks.length >= 2 && tracks.length <= 3) shellTracks = tracks; else if (tracks.length === 4 && trackPx(tracks[0]) > 0) shellTracks = tracks.slice(0, 3) }
-      applyGrid()
-    }
-    let mountObs: MutationObserver | null = null
-    function waitForFrame(): void {
-      mountColumn(); if (panelFrame !== null) return
-      mountObs = new MutationObserver(() => { mountColumn(); if (panelFrame !== null) mountObs?.disconnect() })
-      mountObs.observe(document.body, { childList: true, subtree: true })
-    }
-    function handleSessionChange() {
-      const snapshot = ctx.sessions.list.getSnapshot()
-      const sessionId = snapshot.current as SessionId | undefined
-      const cwd = sessionId === undefined ? undefined : snapshot.byId[sessionId]?.cwd
-      const newRoot = typeof cwd === 'string' && cwd !== '' ? cwd : ''
-      panelWidth = newRoot !== '' ? PANEL_WIDTH : 0
-      if (newRoot !== '' && root === '') applyGrid()
-      if (newRoot === root) return
-      root = newRoot; treeState = null; gitStatus = null; gitChangesCount = 0; loading = root !== ''; render()
-      if (root) { loadTree(); loadGitStatus() }
-    }
-    const unsub = ctx.sessions.list.subscribe(handleSessionChange)
-    handleSessionChange(); waitForFrame()
-
-    // Inject global editor functions
-    console.log('[sol-exp] injecting __solExpOpenFile')
-    ;(window as any).__solExpOpenFile = async (path: string) => {
-      console.log('[sol-exp] openFile called:', path)
-      _editorFile = path
-      _editorContent = null
-      _editorLoading = true
-      _editorError = null
-      _editorUnsupported = false
-      _notifyEditorListeners()
-      try {
-        const resp = await fetch('/solution-explorer/read?root=' + encodeURIComponent(root) + '&file=' + encodeURIComponent(path))
-        const result = await resp.json()
-        if (result.ok) {
-          if (result.value.supported === false) {
-            _editorUnsupported = true
-            _editorContent = null
-          } else {
-            _editorContent = result.value.content
-          }
-        } else {
-          _editorError = result.error?.message || 'Failed to read file'
-        }
-      } catch (err: any) {
-        _editorError = err.message || String(err)
-      }
-      _editorLoading = false
-      _notifyEditorListeners()
-      // Auto-switch to the editor tab
-      setTimeout(() => {
-        const tab = Array.from(document.querySelectorAll('[role="tab"]')).find(el => el.textContent === (document.documentElement.lang?.startsWith('zh') ? '编辑' : 'Edit')) as HTMLElement | null
-        if (tab) tab.click()
-      }, 50)
-    }
-    ;(window as any).__solExpSaveFile = async () => {
-      if (!_editorFile || _editorContent === null) return
-      _editorSaving = true
-      _notifyEditorListeners()
-      try {
-        const resp = await fetch('/solution-explorer/write', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ root, path: _editorFile, content: _editorContent }),
-        })
-        const result = await resp.json()
-        if (!result.ok) alert('Save failed: ' + (result.error?.message || ''))
-      } catch (err: any) {
-        alert('Save failed: ' + (err.message || String(err)))
-      }
-      _editorSaving = false
-      _notifyEditorListeners()
-    }
-    ;(window as any).__solExpGetEditorState = () => ({
-      editorFile: _editorFile,
-      editorContent: _editorContent,
-      editorLoading: _editorLoading,
-      editorError: _editorError,
-      editorSaving: _editorSaving,
-      editorUnsupported: _editorUnsupported,
-    })
-    ;(window as any).__solExpEditorListeners = _editorListeners
-
-    return () => {
-      unsub(); styleObs?.disconnect(); sizeObs?.disconnect(); mountObs?.disconnect()
-      if (panelFrame !== null && panelCol !== null) panelCol.remove()
-      const keys = ['__solExpTab', '__solExpToggleExpand', '__solExpSelectFile', '__solExpCollapseAll',
-        '__solExpExpandAll', '__solExpRefresh', '__solExpSearch', '__solExpRefreshSCM',
-        '__solExpCommitMsg', '__solExpCommit', '__solExpStage', '__solExpUnstage',
-        '__solExpDiscard', '__solExpStageAll', '__solExpUnstageAll', '__solExpDiscardAll',
-        '__solExpToggleSection', '__solExpClearSearch', '__solExpDeleteFile', '__solExpContextMenu',
-        '__solExpOpenFile', '__solExpSaveFile', '__solExpGetEditorState', '__solExpEditorListeners',
-        '__solExpSelect', '__solExpCopy', '__solExpCut', '__solExpPaste',
-        '__solExpDragStart', '__solExpDragOver', '__solExpDrop', '__solExpDropFiles', '__solExpDeletePaths', '__solExpPanelContextMenu', '__solExpClearSelection', '__solExpNew',
-      ]
-      keys.forEach(k => delete (window as any)[k])
-      document.removeEventListener('click', hideContextMenu)
-      document.removeEventListener('dragenter', dragGuard)
-      document.removeEventListener('dragover', dragGuard)
-      document.removeEventListener('drop', dragGuard)
-    }
-  }, 'dsh-solution-explorer: wiring')
-
-  // Register an editor view tab in the conversation view slot (after trajectory at order: 10)
-  ctx.effect(() => {
-    const t = ctx.locale.bind(NS)
-    ctx.slots.inject('conversation.view', () => ctx.slots.register({
-      name: 'conversation.view',
-      id: 'solution-explorer-editor',
-      order: 20,
-      locale: NS,
-      label: () => t('panel.editor'),
-      inject: (sessionId: SessionId) => ({
-        getRoot: () => {
-          const snapshot = ctx.sessions.list.getSnapshot()
-          const session = snapshot.byId[sessionId]
-          return session?.cwd ?? ''
-        },
-      }),
-    }, EditorView))
-    return () => {}
-  }, 'dsh-solution-explorer: editor view')
+      `;
+				}
+				function escapeHtml(str) {
+					return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/\\\\/g, "\\92;");
+				}
+				let searchTimer;
+				window.__solExpTab = (tab) => {
+					currentTab = tab;
+					render();
+					if (tab === "scm") loadGitStatus();
+				};
+				window.__solExpToggleExpand = (path) => {
+					if (expandedPaths.has(path)) expandedPaths.delete(path);
+					else expandedPaths.add(path);
+					render();
+				};
+				window.__solExpSelectFile = async (path) => {
+					selectedPath = path;
+					if (typeof window.__solExpOpenFile === "function") window.__solExpOpenFile(path);
+				};
+				window.__solExpClearSelection = () => {
+					if (selectedPaths.size || selectedPath) {
+						selectedPaths = /* @__PURE__ */ new Set<string>();
+						selectionAnchor = null;
+						selectedPath = null;
+						render();
+					}
+				};
+				window.__solExpSelect = (path, shift, ctrl, isDir) => {
+					if (ctrl) {
+						if (selectedPaths.has(path)) selectedPaths.delete(path);
+						else selectedPaths.add(path);
+						selectionAnchor = path;
+					} else if (shift && selectionAnchor) {
+						const order = [];
+						const collect = (n) => {
+							order.push(n.path);
+							for (const c of n.children || []) collect(c);
+						};
+						if (treeState) collect(treeState);
+						const a = order.indexOf(selectionAnchor), b = order.indexOf(path);
+						if (a >= 0 && b >= 0) {
+							const [lo, hi] = a < b ? [a, b] : [b, a];
+							selectedPaths = new Set(order.slice(lo, hi + 1));
+						} else {
+							selectedPaths = /* @__PURE__ */ new Set([path]);
+							selectionAnchor = path;
+						}
+					} else {
+						selectedPaths = /* @__PURE__ */ new Set([path]);
+						selectionAnchor = path;
+					}
+					selectedPath = path;
+					if (isDir) if (expandedPaths.has(path)) expandedPaths.delete(path);
+					else expandedPaths.add(path);
+					render();
+				};
+				window.__solExpCopy = () => {
+					if (selectedPaths.size) {
+						clipboard = {
+							paths: [...selectedPaths],
+							mode: "copy"
+						};
+						render();
+					}
+				};
+				window.__solExpCut = () => {
+					if (selectedPaths.size) {
+						clipboard = {
+							paths: [...selectedPaths],
+							mode: "cut"
+						};
+						render();
+					}
+				};
+				window.__solExpPaste = async (target) => {
+					if (!clipboard || !clipboard.paths.length || !root) return;
+					const { paths, mode } = clipboard;
+					clipboard = null;
+					let targetDir = target;
+					if (targetDir) {
+						const find = (n) => {
+							if (n.path === target) return n;
+							for (const c of n.children || []) {
+								const f = find(c);
+								if (f) return f;
+							}
+							return null;
+						};
+						const node = treeState ? find(treeState) : null;
+						if (!node || node.type !== "directory") {
+							const i = targetDir.lastIndexOf("/");
+							targetDir = i > 0 ? targetDir.slice(0, i) : "";
+						}
+					}
+					const norm = (p) => p.replace(/\\/g, "/");
+					for (const raw of paths) {
+						const src = norm(raw);
+						const tgt = norm(targetDir);
+						const parent = src.includes("/") ? src.slice(0, src.lastIndexOf("/")) : "";
+						if (mode === "cut" && parent === tgt) {
+							alert("已在目标目录，无需移动");
+							return;
+						}
+						if (tgt && (tgt === src || tgt.startsWith(src + "/"))) {
+							alert("不能移动到自身内部");
+							return;
+						}
+					}
+					let done = 0, failed = 0;
+					for (const src of paths) try {
+						const result = await (await fetch("/solution-explorer/paste", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({
+								root,
+								mode,
+								source: src,
+								targetDir
+							})
+						})).json();
+						if (result.ok) done++;
+						else {
+							failed++;
+							console.warn("[sol-exp] paste failed", src, result.error);
+						}
+					} catch (err) {
+						failed++;
+						console.warn("[sol-exp] paste error", src, err);
+					}
+					if (failed) alert(failed + " 项粘贴失败");
+					render();
+					loadTree();
+					loadGitStatus();
+				};
+				window.__solExpNew = async (type, dir) => {
+					if (!root) return;
+					const name = window.prompt(type === "file" ? "输入文件名" : "输入文件夹名");
+					if (!name || !name.trim()) return;
+					const clean = name.trim();
+					const rel = dir ? dir.replace(/\\/g, "/") + "/" + clean : clean;
+					try {
+						const result = await (await fetch("/solution-explorer/create", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({
+								root,
+								path: rel,
+								type
+							})
+						})).json();
+						if (!result.ok) {
+							alert("创建失败: " + (result.error?.message || ""));
+							return;
+						}
+						loadTree();
+						loadGitStatus();
+					} catch (err) {
+						alert("创建失败: " + (err.message || String(err)));
+					}
+				};
+				window.__solExpDragStart = (path) => {
+					dragPaths = selectedPaths.has(path) ? [...selectedPaths] : [path];
+				};
+				window.__solExpDragOver = (path, evt) => {
+					const clear = () => document.querySelectorAll(".sol-exp-drop-target").forEach((el) => el.classList.remove("sol-exp-drop-target"));
+					clear();
+					if (dragPaths.length && !dragPaths.includes(path)) {
+						const node = (evt.target as HTMLElement)?.closest(".sol-exp-tree-node");
+						if (node) node.classList.add("sol-exp-drop-target");
+					}
+					dropTargetPath = path;
+				};
+				window.__solExpDrop = async (path, evt) => {
+					const files = evt.dataTransfer?.files;
+					if (files && files.length > 0) {
+						await window.__solExpDropFiles(path, files);
+						return;
+					}
+					const targetDir = path;
+					const sources = dragPaths;
+					dragPaths = [];
+					dropTargetPath = null;
+					document.querySelectorAll(".sol-exp-drop-target").forEach((el) => el.classList.remove("sol-exp-drop-target"));
+					if (!root || !sources.length) {
+						render();
+						return;
+					}
+					{
+						const norm = (p) => p.replace(/\\/g, "/");
+						const tgt = norm(targetDir);
+						for (const raw of sources) {
+							const src = norm(raw);
+							const parent = src.includes("/") ? src.slice(0, src.lastIndexOf("/")) : "";
+							if (src === tgt || tgt.startsWith(src + "/")) {
+								alert("不能移动到自身内部");
+								render();
+								return;
+							}
+							if (parent === tgt) {
+								alert("已在目标目录，无需移动");
+								render();
+								return;
+							}
+						}
+					}
+					let done = 0, failed = 0;
+					for (const src of sources) try {
+						const result = await (await fetch("/solution-explorer/move", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({
+								root,
+								source: src,
+								targetDir
+							})
+						})).json();
+						if (result.ok) done++;
+						else {
+							failed++;
+							console.warn("[sol-exp] move failed", src, result.error);
+						}
+					} catch (err) {
+						failed++;
+						console.warn("[sol-exp] move error", src, err);
+					}
+					if (failed) alert(failed + " 项移动失败");
+					render();
+					loadTree();
+					loadGitStatus();
+				};
+				const bytesToBase64 = (bytes) => {
+					let binary = "";
+					const chunk = 32768;
+					for (let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)));
+					return btoa(binary);
+				};
+				window.__solExpDropFiles = async (target, files) => {
+					const targetDir = target || "";
+					let done = 0, failed = 0, skipped = 0;
+					for (const f of Array.from(files)) {
+						if (f.size > 50 * 1024 * 1024) {
+							skipped++;
+							alert("文件过大（>50MB）跳过: " + f.name);
+							continue;
+						}
+						try {
+							const bytes = new Uint8Array(await f.arrayBuffer());
+							const binary = bytes.subarray(0, Math.min(4096, bytes.length)).includes(0);
+							const content = binary ? bytesToBase64(bytes) : new TextDecoder("utf-8").decode(bytes);
+							const rel = targetDir ? targetDir + "/" + f.name : f.name;
+							const result = await (await fetch("/solution-explorer/upload", {
+								method: "POST",
+								headers: { "Content-Type": "application/json" },
+								body: JSON.stringify({
+									root,
+									path: rel,
+									content,
+									binary
+								})
+							})).json();
+							if (result.ok) done++;
+							else {
+								failed++;
+								console.warn("[sol-exp] upload failed", f.name, result.error);
+							}
+						} catch (err) {
+							failed++;
+							console.warn("[sol-exp] upload error", f.name, err);
+						}
+					}
+					if (failed) alert(failed + " 个文件上传失败");
+					render();
+					loadTree();
+					loadGitStatus();
+				};
+				window.__solExpCollapseAll = () => {
+					expandedPaths = /* @__PURE__ */ new Set<string>();
+					render();
+				};
+				window.__solExpExpandAll = () => {
+					const paths = /* @__PURE__ */ new Set<string>();
+					const collect = (n) => {
+						if (n?.type === "directory") {
+							paths.add(n.path);
+							for (const c of n.children || []) collect(c);
+						}
+					};
+					if (treeState) collect(treeState);
+					expandedPaths = paths;
+					render();
+				};
+				window.__solExpRefresh = () => {
+					loadTree();
+					loadGitStatus();
+				};
+				window.__solExpClearSearch = () => {
+					searchQuery = "";
+					searching = false;
+					searchResults = [];
+					render();
+				};
+				window.__solExpSearch = (query) => {
+					if (searchTimer) clearTimeout(searchTimer);
+					searchTimer = setTimeout(() => searchFiles(query), 300);
+				};
+				window.__solExpRefreshSCM = () => {
+					loadGitStatus();
+				};
+				window.__solExpCommitMsg = (msg) => {
+					commitMessage = msg;
+					render();
+				};
+				window.__solExpCommit = () => {
+					doCommit();
+				};
+				window.__solExpStage = (files) => {
+					doStage(files);
+				};
+				window.__solExpUnstage = (files) => {
+					doUnstage(files);
+				};
+				window.__solExpDiscard = (files) => {
+					doDiscard(files);
+				};
+				window.__solExpStageAll = () => {
+					const all = [...gitStatus?.unstaged || [], ...gitStatus?.untracked || []].map((i) => i.path);
+					if (all.length) doStage(all);
+				};
+				window.__solExpUnstageAll = () => {
+					const all = (gitStatus?.staged || []).map((i) => i.path);
+					if (all.length) doUnstage(all);
+				};
+				window.__solExpDiscardAll = () => {
+					const all = [...gitStatus?.unstaged || [], ...gitStatus?.untracked || []].map((i) => i.path);
+					if (all.length && window.confirm(t("scm.discardAllConfirm"))) doDiscard(all);
+				};
+				let contextMenuEl = null;
+				function hideContextMenu() {
+					if (contextMenuEl) {
+						contextMenuEl.remove();
+						contextMenuEl = null;
+					}
+				}
+				document.addEventListener("click", hideContextMenu);
+				const dragGuard = (e) => {
+					if (activeEl?.contains(e.target)) e.preventDefault();
+				};
+				document.addEventListener("dragenter", dragGuard);
+				document.addEventListener("dragover", dragGuard);
+				document.addEventListener("drop", dragGuard);
+				document.addEventListener("click", (e) => {
+					if (!activeEl?.contains(e.target)) return;
+					const el = e.target as HTMLElement;
+					if (el.closest(".sol-exp-tree-node") || el.closest(".sol-exp-search-item") || el.closest(".sol-exp-scm-item") || el.closest(".sol-exp-context-menu")) return;
+					if (selectedPaths.size || selectedPath) {
+						selectedPaths = /* @__PURE__ */ new Set<string>();
+						selectionAnchor = null;
+						selectedPath = null;
+						render();
+					}
+				});
+				document.addEventListener("dragend", () => {
+					if (dragPaths.length || dropTargetPath) {
+						dragPaths = [];
+						dropTargetPath = null;
+						render();
+					}
+				});
+				window.__solExpPanelContextMenu = (evt) => {
+					evt.preventDefault();
+					const el = evt.target as HTMLElement;
+					if (el && (el.closest(".sol-exp-header") || el.closest(".sol-exp-activity") || el.closest(".sol-exp-commit-box"))) return;
+					window.__solExpContextMenu("", evt.pageX, evt.pageY, false);
+				};
+				window.__solExpContextMenu = (target, x, y, isDir = false) => {
+					hideContextMenu();
+					if (target && !selectedPaths.has(target)) {
+						selectedPaths = /* @__PURE__ */ new Set([target]);
+						selectionAnchor = target;
+						selectedPath = target;
+					}
+					const menu = document.createElement("div");
+					menu.className = "sol-exp-context-menu";
+					menu.style.left = Math.min(x, window.innerWidth - 160) + "px";
+					menu.style.top = Math.min(y, window.innerHeight - 80) + "px";
+					menu.addEventListener("click", (e) => e.stopPropagation());
+					menu.addEventListener("contextmenu", (e) => e.preventDefault());
+					const addItem = (label, danger, onClick) => {
+						const item = document.createElement("div");
+						item.className = "sol-exp-context-menu-item" + (danger ? " danger" : "");
+						item.textContent = label;
+						item.addEventListener("click", () => {
+							hideContextMenu();
+							onClick();
+						});
+						menu.appendChild(item);
+					};
+					const targets = target && selectedPaths.has(target) ? [...selectedPaths] : target ? [target] : [];
+					const base = isDir ? target : target ? target.includes("/") ? target.slice(0, target.lastIndexOf("/")) : target.includes("\\") ? target.slice(0, target.lastIndexOf("\\")) : "" : "";
+					addItem("新建文件", false, () => window.__solExpNew("file", base));
+					addItem("新建文件夹", false, () => window.__solExpNew("dir", base));
+					if (targets.length) {
+						addItem("复制", false, () => {
+							window.__solExpCopy();
+						});
+						addItem("剪切", false, () => {
+							window.__solExpCut();
+						});
+						addItem("删除 (" + targets.length + ")", true, () => window.__solExpDeletePaths(targets));
+						addItem("复制相对路径", false, () => navigator.clipboard.writeText(targets.join("\n")));
+						addItem("复制绝对路径", false, () => {
+							const sep = root.endsWith("/") || root.endsWith("\\") ? "" : "/";
+							navigator.clipboard.writeText(targets.map((p) => root + sep + p).join("\n"));
+						});
+					}
+					if (clipboard && clipboard.paths.length) addItem("粘贴到此处" + (clipboard.mode === "cut" ? "（剪切）" : ""), false, () => window.__solExpPaste(isDir ? target : target || ""));
+					if (menu.childNodes.length === 0) return;
+					document.body.appendChild(menu);
+					contextMenuEl = menu;
+				};
+				window.__solExpDeletePaths = async (paths) => {
+					if (!root || !paths.length) return;
+					if (!window.confirm("确定删除 " + paths.length + " 项？")) return;
+					let done = 0, failed = 0;
+					for (const p of paths) try {
+						const result = await (await fetch("/solution-explorer/delete", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({
+								root,
+								path: p
+							})
+						})).json();
+						if (result.ok) done++;
+						else {
+							failed++;
+							console.warn("[sol-exp] delete failed", p, result.error);
+						}
+					} catch (err) {
+						failed++;
+						console.warn("[sol-exp] delete error", p, err);
+					}
+					for (const p of paths) selectedPaths.delete(p);
+					if (failed) alert(failed + " 项删除失败");
+					render();
+					loadTree();
+					loadGitStatus();
+				};
+				window.__solExpDeleteFile = async (target) => {
+					if (target) await window.__solExpDeletePaths([target]);
+				};
+				window.__solExpToggleSection = (id) => {
+					const el = document.querySelector(`[data-section="${id}"]`);
+					if (el) el.classList.toggle("collapsed");
+				};
+				const PANEL_WIDTH = 280;
+				const PANEL_MIN = 264;
+				const PANEL_MAX = 420;
+				let panelWidth = 0;
+				let panelFrame = null;
+				let panelCol = null;
+				let shellTracks = [];
+				let styleObs = null;
+				let sizeObs = null;
+				let resizeHandle = null;
+				function parseGridTracks(input) {
+					const tracks = [];
+					let depth = 0;
+					let current = "";
+					for (const char of input) {
+						if (char === "(") depth++;
+						if (char === ")") depth = Math.max(0, depth - 1);
+						if (char === " " && depth === 0) {
+							if (current !== "") {
+								tracks.push(current);
+								current = "";
+							}
+							continue;
+						}
+						current += char;
+					}
+					if (current !== "") tracks.push(current);
+					return tracks;
+				}
+				function trackPx(track) {
+					const m = /^(-?[\\d.]+)px$/.exec(track.trim());
+					return m === null ? 0 : Number(m[1]);
+				}
+				function clampPanelWidth(px) {
+					return Math.min(PANEL_MAX, Math.max(PANEL_MIN, Math.round(px)));
+				}
+				function findFrame() {
+					const s = document.querySelector("[data-dsh-frame]");
+					if (s !== null) return s;
+					return document.querySelector("[class*=\"sidebarCol\"]")?.parentElement ?? null;
+				}
+				function applyGrid() {
+					if (panelFrame === null || shellTracks.length !== 3) return;
+					panelFrame.style.gridTemplateColumns = `${shellTracks[0]} minmax(0, 1fr) ${shellTracks[2]} ${Math.round(panelWidth)}px`;
+					if (panelCol !== null) panelCol.style.visibility = panelWidth > 0 ? "visible" : "hidden";
+					if (resizeHandle !== null) {
+						const w = panelFrame.getBoundingClientRect().width;
+						resizeHandle.style.left = w - panelWidth - 3 + "px";
+					}
+				}
+				function mountColumn() {
+					if (panelFrame !== null) return;
+					const frame = findFrame();
+					if (frame === null) return;
+					panelFrame = frame;
+					panelCol = document.createElement("div");
+					panelCol.dataset.solutionExplorer = "";
+					panelCol.style.minWidth = "0";
+					panelCol.style.overflow = "hidden";
+					panelCol.style.display = "flex";
+					panelCol.style.flexDirection = "column";
+					panelCol.style.borderLeft = "1px solid var(--dsw-alias-border-l2, #333)";
+					frame.appendChild(panelCol);
+					activeEl = panelCol;
+					render();
+					panelCol.addEventListener("dragenter", (e) => e.stopPropagation());
+					panelCol.addEventListener("dragover", (e) => e.stopPropagation());
+					panelCol.addEventListener("drop", (e) => e.stopPropagation());
+					resizeHandle = document.createElement("div");
+					resizeHandle.className = "sol-exp-resize-handle";
+					resizeHandle.addEventListener("pointerdown", (e) => {
+						e.preventDefault();
+						resizeHandle.dataset.dragging = "true";
+						resizeHandle.setPointerCapture(e.pointerId);
+						const startX = e.clientX;
+						const startWidth = panelWidth;
+						const onMove = (me) => {
+							const dx = me.clientX - startX;
+							panelWidth = clampPanelWidth(startWidth - dx);
+							applyGrid();
+						};
+						const onUp = () => {
+							resizeHandle.removeEventListener("pointermove", onMove);
+							resizeHandle.removeEventListener("pointerup", onUp);
+							resizeHandle.dataset.dragging = void 0;
+						};
+						resizeHandle.addEventListener("pointermove", onMove);
+						resizeHandle.addEventListener("pointerup", onUp);
+					});
+					frame.appendChild(resizeHandle);
+					applyGrid();
+					const syncGrid = () => {
+						if (panelFrame === null) return;
+						const inline = panelFrame.style.gridTemplateColumns;
+						if (inline === "") return;
+						const tracks = parseGridTracks(inline);
+						if (tracks.length >= 2 && tracks.length <= 3) {
+							shellTracks = tracks;
+							applyGrid();
+							return;
+						}
+						if (tracks.length === 4 && shellTracks.length === 3) return;
+					};
+					styleObs = new MutationObserver(syncGrid);
+					styleObs.observe(frame, {
+						attributes: true,
+						attributeFilter: ["style"]
+					});
+					sizeObs = new ResizeObserver(() => {
+						applyGrid();
+					});
+					sizeObs.observe(frame);
+					const initial = (frame as HTMLElement).style.gridTemplateColumns;
+					if (initial !== "") {
+						const tracks = parseGridTracks(initial);
+						if (tracks.length >= 2 && tracks.length <= 3) shellTracks = tracks;
+						else if (tracks.length === 4 && trackPx(tracks[0]) > 0) shellTracks = tracks.slice(0, 3);
+					}
+					applyGrid();
+				}
+				let mountObs = null;
+				function waitForFrame() {
+					mountColumn();
+					if (panelFrame !== null) return;
+					mountObs = new MutationObserver(() => {
+						mountColumn();
+						if (panelFrame !== null) mountObs?.disconnect();
+					});
+					mountObs.observe(document.body, {
+						childList: true,
+						subtree: true
+					});
+				}
+				function handleSessionChange() {
+					const snapshot = ctx.sessions.list.getSnapshot();
+					const sessionId = snapshot.current;
+					const cwd = sessionId === void 0 ? void 0 : snapshot.byId[sessionId]?.cwd;
+					const newRoot = typeof cwd === "string" && cwd !== "" ? cwd : "";
+					panelWidth = newRoot !== "" ? PANEL_WIDTH : 0;
+					if (newRoot !== "" && root === "") applyGrid();
+					if (newRoot === root) return;
+					root = newRoot;
+					treeState = null;
+					gitStatus = null;
+					gitChangesCount = 0;
+					loading = root !== "";
+					render();
+					if (root) {
+						loadTree();
+						loadGitStatus();
+					}
+				}
+				const unsub = ctx.sessions.list.subscribe(handleSessionChange);
+				handleSessionChange();
+				waitForFrame();
+				console.log("[sol-exp] injecting __solExpOpenFile");
+				window.__solExpOpenFile = async (path) => {
+					_diffPath = null;
+					_diffContent = null;
+					_diffLoading = false;
+					_notifyDiffListeners();
+					_editorFile = path;
+					_editorContent = null;
+					_editorLoading = true;
+					_editorError = null;
+					_editorUnsupported = false;
+					_notifyEditorListeners();
+					try {
+						const result = await (await fetch("/solution-explorer/read?root=" + encodeURIComponent(root) + "&file=" + encodeURIComponent(path))).json();
+						if (result.ok) if (result.value.supported === false) {
+							_editorUnsupported = true;
+							_editorContent = null;
+						} else _editorContent = result.value.content;
+						else _editorError = result.error?.message || "Failed to read file";
+					} catch (err) {
+						_editorError = err.message || String(err);
+					}
+					_editorLoading = false;
+					_notifyEditorListeners();
+					setTimeout(() => {
+						const tab = Array.from(document.querySelectorAll("[role=\"tab\"]")).find((el) => el.textContent === (document.documentElement.lang?.startsWith("zh") ? "编辑" : "Edit")) as HTMLElement | null;
+						if (tab) tab.click();
+					}, 50);
+				};
+				window.__solExpSaveFile = async () => {
+					if (!_editorFile || _editorContent === null) return;
+					_editorSaving = true;
+					_notifyEditorListeners();
+					try {
+						const result = await (await fetch("/solution-explorer/write", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({
+								root,
+								path: _editorFile,
+								content: _editorContent
+							})
+						})).json();
+						if (!result.ok) alert("Save failed: " + (result.error?.message || ""));
+					} catch (err) {
+						alert("Save failed: " + (err.message || String(err)));
+					}
+					_editorSaving = false;
+					_notifyEditorListeners();
+				};
+				window.__solExpGetEditorState = () => ({
+					editorFile: _editorFile,
+					editorContent: _editorContent,
+					editorLoading: _editorLoading,
+					editorError: _editorError,
+					editorSaving: _editorSaving,
+					editorUnsupported: _editorUnsupported
+				});
+				window.__solExpEditorListeners = _editorListeners;
+				window.__solExpOpenDiff = async (path, staged) => {
+					_diffPath = path;
+					_diffStaged = staged;
+					_diffRoot = root;
+					_diffContent = null;
+					_diffOldContent = "";
+					_diffNewContent = "";
+					_diffLoading = true;
+					_notifyDiffListeners();
+					try {
+						const result = await (await fetch("/solution-explorer/git-diff?root=" + encodeURIComponent(root) + "&file=" + encodeURIComponent(path) + "&staged=" + staged)).json();
+						if (result.ok) { _diffContent = result.value.diff ?? result.value; _diffOldContent = result.value.oldContent ?? ""; _diffNewContent = result.value.newContent ?? "" }
+						else { _diffContent = null; _diffOldContent = ""; _diffNewContent = "" }
+					} catch {
+						_diffContent = null;
+						_diffOldContent = "";
+						_diffNewContent = "";
+					}
+					_diffLoading = false;
+					_notifyDiffListeners();
+					setTimeout(() => {
+						const tab = Array.from(document.querySelectorAll("[role=\"tab\"]")).find((el) => el.textContent === (document.documentElement.lang?.startsWith("zh") ? "编辑" : "Edit")) as HTMLElement | null;
+						if (tab) tab.click();
+					}, 50);
+				};
+				window.__solExpGetDiffState = () => ({
+					diffPath: _diffPath,
+					diffStaged: _diffStaged,
+					diffContent: _diffContent,
+					diffOldContent: _diffOldContent,
+					diffNewContent: _diffNewContent,
+					diffLoading: _diffLoading,
+					diffRoot: _diffRoot
+				});
+				window.__solExpDiffListeners = _diffListeners;
+				return () => {
+					unsub();
+					styleObs?.disconnect();
+					sizeObs?.disconnect();
+					mountObs?.disconnect();
+					if (panelFrame !== null && panelCol !== null) panelCol.remove();
+					[
+						"__solExpTab",
+						"__solExpToggleExpand",
+						"__solExpSelectFile",
+						"__solExpCollapseAll",
+						"__solExpExpandAll",
+						"__solExpRefresh",
+						"__solExpSearch",
+						"__solExpRefreshSCM",
+						"__solExpCommitMsg",
+						"__solExpCommit",
+						"__solExpStage",
+						"__solExpUnstage",
+						"__solExpDiscard",
+						"__solExpStageAll",
+						"__solExpUnstageAll",
+						"__solExpDiscardAll",
+						"__solExpToggleSection",
+						"__solExpClearSearch",
+						"__solExpDeleteFile",
+						"__solExpContextMenu",
+						"__solExpOpenFile",
+						"__solExpSaveFile",
+						"__solExpGetEditorState",
+						"__solExpEditorListeners",
+						"__solExpOpenDiff",
+						"__solExpGetDiffState",
+						"__solExpDiffListeners",
+						"__solExpSelect",
+						"__solExpCopy",
+						"__solExpCut",
+						"__solExpPaste",
+						"__solExpDragStart",
+						"__solExpDragOver",
+						"__solExpDrop",
+						"__solExpDropFiles",
+						"__solExpDeletePaths",
+						"__solExpPanelContextMenu",
+						"__solExpClearSelection",
+						"__solExpNew"
+					].forEach((k) => delete window[k]);
+					document.removeEventListener("click", hideContextMenu);
+					document.removeEventListener("dragenter", dragGuard);
+					document.removeEventListener("dragover", dragGuard);
+					document.removeEventListener("drop", dragGuard);
+				};
+			}, "dsh-solution-explorer: wiring");
+			ctx.effect(() => {
+				const t = ctx.locale.bind(NS);
+				ctx.slots.inject("conversation.view", () => ctx.slots.register({
+					name: "conversation.view",
+					id: "solution-explorer-editor",
+					order: 20,
+					locale: NS,
+					label: () => t("panel.editor"),
+					inject: (sessionId: SessionId) => ({ getRoot: () => {
+						return ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd ?? "";
+					} })
+				}, EditorView));
+				return () => {};
+			}, "dsh-solution-explorer: editor view");
+		}
+		function EditorView(props) {
+			const { sessionId, inject } = props;
+			const [, forceUpdate] = useState(0);
+			const rerender = useCallback(() => forceUpdate((n) => n + 1), []);
+			const textareaRef = useRef(null);
+			const gutterRef = useRef(null);
+			const [dirty, setDirty] = useState(false);
+			const diffRightRowRefs = useRef<(HTMLElement | null)[]>([]);
+			const [diffRows, setDiffRows] = useState(null);
+			const rowIdRef = useRef(0);
+			const focusDiffRowRef = useRef(-1);
+			const focusDiffOffsetRef = useRef(-1);
+			const lastEditorFileRef = useRef(null);
+			useEffect(() => {
+				const idx = focusDiffRowRef.current;
+				if (idx >= 0) {
+					focusDiffRowRef.current = -1;
+					const el = diffRightRowRefs.current[idx];
+					const off = focusDiffOffsetRef.current;
+					focusDiffOffsetRef.current = -1;
+					if (el) {
+						el.focus();
+						const range = document.createRange();
+						range.selectNodeContents(el);
+						const len = (el.textContent || "").length;
+						if (off > 0 && off <= len && el.firstChild) range.setStart(el.firstChild, off);
+						range.collapse(true);
+						const sel = window.getSelection();
+						if (sel) { sel.removeAllRanges(); sel.addRange(range); }
+					}
+				}
+			});
+			useEffect(() => {
+				const listeners = window.__solExpDiffListeners;
+				if (listeners) {
+					listeners.add(rerender);
+					return () => {
+						listeners.delete(rerender);
+					};
+				}
+			}, [rerender]);
+			useEffect(() => {
+				const listeners = window.__solExpEditorListeners;
+				if (listeners) {
+					listeners.add(rerender);
+					return () => {
+						listeners.delete(rerender);
+					};
+				}
+			}, [rerender]);
+			useEffect(() => {
+				const st = window.__solExpGetEditorState?.();
+				if (st && textareaRef.current && st.editorContent !== null && st.editorLoading === false) {
+					if (st.editorFile !== lastEditorFileRef.current) {
+						lastEditorFileRef.current = st.editorFile;
+						textareaRef.current.scrollTop = 0;
+						if (gutterRef.current) gutterRef.current.scrollTop = 0;
+					}
+					if (textareaRef.current.value !== st.editorContent) {
+						textareaRef.current.value = st.editorContent;
+						setDirty(false);
+					}
+				}
+			});
+												const getDiffState = window.__solExpGetDiffState;
+			const dstate = getDiffState ? getDiffState() : null;
+			if (dstate && dstate.diffPath) {
+				if (dstate.diffLoading) return h("div", { style: {
+					padding: "16px",
+					textAlign: "center",
+					color: "var(--dsw-alias-label-tertiary)"
+				} }, t("loading"));
+				if (!diffRows || diffRows.path !== dstate.diffPath || diffRows.staged !== dstate.diffStaged) {
+					const parsed = parseSideBySide(dstate.diffContent || "");
+const oldLines = (dstate.diffOldContent || "").split("\n");
+const newLines = (dstate.diffNewContent || "").split("\n");
+if (oldLines[oldLines.length - 1] === "") oldLines.pop();
+if (newLines[newLines.length - 1] === "") newLines.pop();
+const oldToNew = new Map();
+parsed.forEach((r) => {
+if (r.old !== "" && r.oldNum !== null) oldToNew.set(r.oldNum, r.new !== "" && r.newNum !== null ? r.newNum : null);
+});
+const full = [];
+let j = 1;
+for (let i = 1; i <= oldLines.length; i++) {
+const paired = oldToNew.has(i) ? oldToNew.get(i) : undefined;
+if (paired === null) {
+full.push({ id: rowIdRef.current++, old: oldLines[i - 1], new: "", oldNum: i, newNum: null, inNew: false, oldDel: true, newAdd: false });
+} else if (paired !== undefined) {
+while (j < paired) {
+full.push({ id: rowIdRef.current++, old: "", new: newLines[j - 1], oldNum: null, newNum: j, inNew: true, oldDel: false, newAdd: true });
+j++;
 }
-
-// EditorView component for the conversation.view slot
-function EditorView(props: any) {
-  const { sessionId, inject } = props
-  const [, forceUpdate] = useState(0)
-  const rerender = useCallback(() => forceUpdate(n => n + 1), [])
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
-  const [dirty, setDirty] = useState(false)
-
-  useEffect(() => {
-    const listeners = (window as any).__solExpEditorListeners as Set<() => void> | undefined
-    if (listeners) {
-      listeners.add(rerender)
-      return () => { listeners.delete(rerender) }
-    }
-  }, [rerender])
-
-  // When a new file is loaded, update the textarea content and reset dirty
-  useEffect(() => {
-    const st = ((window as any).__solExpGetEditorState as (() => any) | undefined)?.()
-    if (st && textareaRef.current && st.editorContent !== null && st.editorLoading === false) {
-      if (textareaRef.current.value !== st.editorContent) {
-        textareaRef.current.value = st.editorContent
-        setDirty(false)
-      }
-    }
-  })
-
-  const getState = (window as any).__solExpGetEditorState as (() => {
-    editorFile: string | null; editorContent: string | null
-    editorLoading: boolean; editorError: string | null; editorSaving: boolean; editorUnsupported: boolean
-  }) | undefined
-
-  const st = getState ? getState() : { editorFile: null, editorContent: null, editorLoading: false, editorError: null, editorSaving: false, editorUnsupported: false }
-
-  const file = st.editorFile
-  const loading = st.editorLoading
-  const error = st.editorError
-  const saving = st.editorSaving
-  const unsupported = st.editorUnsupported
-
-  const statusText = saving ? t('editor.saving') : (dirty ? t('editor.unsaved') : t('editor.saved'))
-  const statusColor = saving ? 'var(--dsw-alias-label-secondary)' : (dirty ? '#e2b714' : '#4ec9b0')
-
-  if (!file) {
-    return h('div', { style: { padding: '16px', textAlign: 'center', color: 'var(--dsw-alias-label-tertiary)' } },
-      t('editor.noFile')
-    )
-  }
-
-  if (loading) {
-    return h('div', { style: { padding: '16px', textAlign: 'center', color: 'var(--dsw-alias-label-tertiary)' } },
-      t('loading')
-    )
-  }
-
-  if (unsupported) {
-    return h('div', { style: { padding: '16px', textAlign: 'center', color: 'var(--dsw-alias-label-tertiary)' } },
-      document.documentElement.lang?.startsWith('zh') ? '不支持打开此文件' : 'This file type is not supported'
-    )
-  }
-
-  if (error) {
-    return h('div', { style: { padding: '16px', textAlign: 'center', color: 'var(--dsw-color-error)' } },
-      error
-    )
-  }
-
-  return h('div', { style: { display: 'flex', flexDirection: 'column', height: '100%' } },
-    h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', borderBottom: '1px solid var(--dsw-alias-border-l1)' } },
-      h('span', { style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' } },
-        h('span', { style: { color: 'var(--dsw-alias-label-secondary)' } }, file),
-        h('span', { style: { color: statusColor, fontSize: '11px' } }, statusText)
-      ),
-      h('button', {
-        style: { padding: '2px 8px', border: 'none', borderRadius: '4px', background: 'var(--dsw-alias-bg-modifier)', color: '#fff', cursor: 'pointer', fontSize: '12px' },
-        onClick: () => { (window as any).__solExpSaveFile?.(); setDirty(false) },
-        disabled: saving || !dirty,
-      }, saving ? t('editor.saving') : t('editor.save'))
-    ),
-    h('textarea', {
-      ref: textareaRef,
-      style: { flex: 1, width: '100%', padding: '8px 12px', border: 'none', background: 'var(--dsw-alias-bg-input)', color: 'var(--dsw-alias-label-primary)', fontFamily: 'monospace', fontSize: '13px', lineHeight: '1.5', outline: 'none', resize: 'none', tabSize: 2 },
-      defaultValue: st.editorContent ?? '',
-      onInput: (e: any) => { _editorContent = e.target.value; setDirty(true) },
-      onKeyDown: (e: any) => {
-        if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-          e.preventDefault()
-          ;(window as any).__solExpSaveFile?.()
-          setDirty(false)
-        }
-      },
-      spellCheck: false,
-    }),
-    h('div', { style: { display: 'flex', alignItems: 'center', padding: '2px 8px', borderTop: '1px solid var(--dsw-alias-border-l1)', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' } },
-      h('span', null, t('editor.saveHint'))
-    )
-  )
+full.push({ id: rowIdRef.current++, old: oldLines[i - 1], new: newLines[paired - 1], oldNum: i, newNum: paired, inNew: true, oldDel: false, newAdd: false });
+j = paired + 1;
+} else {
+full.push({ id: rowIdRef.current++, old: oldLines[i - 1], new: j <= newLines.length ? newLines[j - 1] : "", oldNum: i, newNum: j <= newLines.length ? j : null, inNew: j <= newLines.length, oldDel: false, newAdd: false });
+j++;
 }
+}
+while (j <= newLines.length) {
+full.push({ id: rowIdRef.current++, old: "", new: newLines[j - 1], oldNum: null, newNum: j, inNew: true, oldDel: false, newAdd: true });
+j++;
+}
+setDiffRows({ path: dstate.diffPath, staged: dstate.diffStaged, rows: full });
+				}
+				const rows = (diffRows && diffRows.path === dstate.diffPath && diffRows.staged === dstate.diffStaged) ? diffRows.rows : [];
+				if (rows.length === 0) return h("div", { style: {
+					padding: "16px",
+					textAlign: "center",
+					color: "var(--dsw-alias-label-tertiary)"
+				} }, "无差异");
+				const editable = !dstate.diffStaged;
+				const NBSP = "\u00A0";
+				const numStyle = {
+					display: "inline-block",
+					width: "3em",
+					textAlign: "right",
+					marginRight: "8px",
+					color: "var(--dsw-alias-label-tertiary)",
+					opacity: .6,
+					userSelect: "none"
+				};
+				const onRightEnter = (e, i) => {
+					e.preventDefault();
+					const el = e.target;
+					const text = el.textContent || "";
+					let before = text, after = "";
+					const sel = window.getSelection();
+					if (sel && sel.rangeCount > 0 && sel.anchorNode && sel.anchorNode === el.firstChild) {
+						const caret = sel.getRangeAt(0).startOffset;
+						before = text.slice(0, caret);
+						after = text.slice(caret);
+					}
+					setDiffRows((prev) => {
+						if (!prev) return prev;
+						const nr = [...prev.rows];
+						nr[i] = { ...nr[i], new: before };
+						nr.splice(i + 1, 0, { id: rowIdRef.current++, old: "", new: after, oldNum: null, newNum: null, inNew: true, oldDel: false, newAdd: true });
+						return { ...prev, rows: nr };
+					});
+					focusDiffRowRef.current = i + 1;
+					focusDiffOffsetRef.current = 0;
+				};
+				const saveNew = async () => {
+					let content = "";
+					let first = true;
+					rows.forEach((r, i) => {
+						if (r.inNew === false) return;
+						const el = diffRightRowRefs.current[i];
+						let text = r.new;
+						if (el) {
+							const html = el.innerHTML.replace(/<br\s*\/?>/gi, "\n").replace(/<\/(div|p)>/gi, "\n");
+							const tmp = document.createElement("div");
+							tmp.innerHTML = html;
+							text = tmp.textContent ?? r.new;
+						}
+						content += (first ? "" : "\n") + text;
+						first = false;
+					});
+					try {
+						const result = await (await fetch("/solution-explorer/write", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({
+								root: dstate.diffRoot,
+								path: dstate.diffPath,
+								content
+							})
+						})).json();
+						if (!result.ok) alert("保存失败: " + (result.error?.message || ""));
+						else window.__solExpRefreshSCM?.();
+					} catch (err) {
+						alert("保存失败: " + (err.message || String(err)));
+					}
+				};
+				return h("div", { style: {
+					display: "flex",
+					flexDirection: "column",
+					height: "100%"
+				} }, h("div", { style: {
+					display: "flex",
+					alignItems: "center",
+					justifyContent: "space-between",
+					padding: "6px 12px",
+					borderBottom: "1px solid var(--dsw-alias-border-l1)",
+					fontSize: "12px"
+				} }, h("span", { style: { color: "var(--dsw-alias-label-secondary)" } }, dstate.diffPath + (dstate.diffStaged ? "（已暂存）" : "")), h("span", { style: {
+					display: "flex",
+					gap: "12px",
+					alignItems: "center"
+				} }, h("span", { style: { color: "#f14c4c" } }, document.documentElement.lang?.startsWith("zh") ? "变更前" : "Before"), h("span", { style: { color: "#4ec9b0" } }, document.documentElement.lang?.startsWith("zh") ? "变更后" : "After"), editable ? h("button", {
+					style: {
+						padding: "2px 10px",
+						border: "none",
+						borderRadius: "4px",
+						background: "var(--dsw-alias-state-business-primary,#0078d4)",
+						color: "#fff",
+						fontSize: "12px",
+						cursor: "pointer"
+					},
+					onClick: saveNew
+				}, "保存") : h("span", { style: {
+					color: "var(--dsw-alias-label-tertiary)",
+					fontSize: "11px"
+				} }, "已暂存只读"))), h("div", { style: {
+					flex: 1,
+					overflow: "auto",
+					display: "flex",
+					fontFamily: "monospace",
+					fontSize: "12px",
+					lineHeight: "18px"
+				} }, h("div", { style: {
+					flex: "1 1 50%",
+					minWidth: 0,
+					borderRight: "1px solid var(--dsw-alias-border-l1)"
+				} }, rows.map((r) => h("div", { key: "o" + r.id, style: {
+					whiteSpace: "pre",
+					padding: "0 8px",
+					background: r.oldDel ? "rgba(241,76,76,0.15)" : "transparent",
+					color: r.oldDel ? "#f14c4c" : "var(--dsw-alias-label-primary)"
+				} }, h("span", { style: numStyle }, r.oldNum === null ? "" : String(r.oldNum)), h("span", null, r.old === "" ? NBSP : r.old)))), h("div", { style: {
+					flex: "1 1 50%",
+					minWidth: 0
+				} }, rows.map((r, i) => h("div", { key: "n" + r.id, style: {
+					whiteSpace: "pre",
+					padding: "0 8px",
+					background: r.newAdd ? "rgba(78,201,176,0.15)" : "transparent",
+					color: r.newAdd ? "#4ec9b0" : "var(--dsw-alias-label-primary)"
+				} }, h("span", { style: numStyle }, r.newNum === null ? "" : String(r.newNum)), r.inNew === false ? h("span", { style: {
+					color: "var(--dsw-alias-label-tertiary)",
+					opacity: .4
+				} }, NBSP) : h("span", {
+					contentEditable: editable,
+					suppressContentEditableWarning: true,
+					style: {
+						flex: 1,
+						userSelect: "text",
+						WebkitUserSelect: "text",
+						cursor: "text",
+						outline: "none",
+						minWidth: "2px"
+					},
+					spellCheck: false,
+					ref: (el2) => { diffRightRowRefs.current[i] = el2; },
+					onKeyDown: (e) => {
+						if (e.key === "Enter") onRightEnter(e, i)
+						else if (e.key === "Backspace" || e.key === "Delete") {
+							e.preventDefault()
+							const sel = window.getSelection()
+							if (sel && sel.rangeCount > 0 && !sel.getRangeAt(0).collapsed) {
+								sel.getRangeAt(0).deleteContents()
+								return
+							}
+							const el = e.target
+							const text = el.textContent || ""
+							const caret = sel && sel.rangeCount > 0 ? sel.getRangeAt(0).startOffset : -1
+							if (caret === 0 && e.key === "Backspace" && i > 0 && rows[i - 1].inNew !== false) {
+								setDiffRows((prev) => {
+									const nr = [...prev.rows]
+									nr[i - 1] = { ...nr[i - 1], new: (nr[i - 1].new || "") + (nr[i].new || "") }
+									nr.splice(i, 1)
+									return { ...prev, rows: nr }
+								})
+								focusDiffRowRef.current = i - 1
+								focusDiffOffsetRef.current = (rows[i - 1].new || "").length
+								return
+							}
+							if (caret === text.length && e.key === "Delete" && i < rows.length - 1 && rows[i + 1].inNew !== false) {
+								setDiffRows((prev) => {
+									const nr = [...prev.rows]
+									nr[i] = { ...nr[i], new: (nr[i].new || "") + (nr[i + 1].new || "") }
+									nr.splice(i + 1, 1)
+									return { ...prev, rows: nr }
+								})
+								focusDiffRowRef.current = i
+								focusDiffOffsetRef.current = (rows[i].new || "").length
+								return
+							}
+							document.execCommand(e.key === "Backspace" ? "delete" : "forwardDelete")
+						}
+					},
+					onPaste: (e) => { e.preventDefault(); const text = e.clipboardData.getData("text/plain"); document.execCommand("insertText", false, text); }
+				}, r.new))))));
+			}
+const getState = window.__solExpGetEditorState;
+			const st = getState ? getState() : {
+				editorFile: null,
+				editorContent: null,
+				editorLoading: false,
+				editorError: null,
+				editorSaving: false,
+				editorUnsupported: false
+			};
+			const file = st.editorFile;
+			const loading = st.editorLoading;
+			const error = st.editorError;
+			const saving = st.editorSaving;
+			const unsupported = st.editorUnsupported;
+			const statusText = saving ? t("editor.saving") : dirty ? t("editor.unsaved") : t("editor.saved");
+			const statusColor = saving ? "var(--dsw-alias-label-secondary)" : dirty ? "#e2b714" : "#4ec9b0";
+			if (!file) return h("div", { style: {
+				padding: "16px",
+				textAlign: "center",
+				color: "var(--dsw-alias-label-tertiary)"
+			} }, t("editor.noFile"));
+			if (loading) return h("div", { style: {
+				padding: "16px",
+				textAlign: "center",
+				color: "var(--dsw-alias-label-tertiary)"
+			} }, t("loading"));
+			if (unsupported) return h("div", { style: {
+				padding: "16px",
+				textAlign: "center",
+				color: "var(--dsw-alias-label-tertiary)"
+			} }, document.documentElement.lang?.startsWith("zh") ? "不支持打开此文件" : "This file type is not supported");
+			if (error) return h("div", { style: {
+				padding: "16px",
+				textAlign: "center",
+				color: "var(--dsw-color-error)"
+			} }, error);
+			return h("div", { style: {
+				display: "flex",
+				flexDirection: "column",
+				height: "100%"
+			} }, h("div", { style: {
+				display: "flex",
+				alignItems: "center",
+				justifyContent: "space-between",
+				padding: "6px 8px",
+				borderBottom: "1px solid var(--dsw-alias-border-l1)"
+			} }, h("span", { style: {
+				display: "flex",
+				alignItems: "center",
+				gap: "8px",
+				fontSize: "12px"
+			} }, h("span", { style: { color: "var(--dsw-alias-label-secondary)" } }, file), h("span", { style: {
+				color: statusColor,
+				fontSize: "11px"
+			} }, statusText)), h("button", {
+				style: {
+					padding: "2px 8px",
+					border: "none",
+					borderRadius: "4px",
+					background: "var(--dsw-alias-bg-modifier)",
+					color: "#fff",
+					cursor: "pointer",
+					fontSize: "12px"
+				},
+				onClick: () => {
+					window.__solExpSaveFile?.();
+					setDirty(false);
+				},
+				disabled: saving || !dirty
+			}, saving ? t("editor.saving") : t("editor.save"))), h("div", { style: {
+				flex: 1,
+				minHeight: 0,
+				display: "flex"
+			} }, h("div", {
+				ref: gutterRef,
+				style: {
+					width: "3em",
+					flex: "none",
+					overflow: "hidden",
+					background: "var(--dsw-alias-bg-input)",
+					borderRight: "1px solid var(--dsw-alias-border-l1)",
+					fontFamily: "monospace",
+					fontSize: "13px",
+					lineHeight: "1.5",
+					textAlign: "right",
+					padding: "8px 6px 8px 0",
+					color: "var(--dsw-alias-label-tertiary)",
+					opacity: .7,
+					userSelect: "none"
+				}
+			}, Array.from({ length: Math.max(1, (st.editorContent ?? "").split("\n").length) }, (_, i) => h("div", { key: i }, String(i + 1)))), h("textarea", {
+				ref: textareaRef,
+				style: {
+					flex: 1,
+					width: "100%",
+					padding: "8px 12px",
+					border: "none",
+					background: "var(--dsw-alias-bg-input)",
+					color: "var(--dsw-alias-label-primary)",
+					fontFamily: "monospace",
+					fontSize: "13px",
+					lineHeight: "1.5",
+					outline: "none",
+					resize: "none",
+					tabSize: 2
+				},
+				defaultValue: st.editorContent ?? "",
+				onInput: (e) => {
+					_editorContent = e.target.value;
+					setDirty(true);
+				},
+				onScroll: (e) => {
+					if (gutterRef.current) gutterRef.current.scrollTop = e.target.scrollTop;
+				},
+				onKeyDown: (e) => {
+					if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+						e.preventDefault();
+						window.__solExpSaveFile?.();
+						setDirty(false);
+					}
+				},
+				spellCheck: false
+			})), h("div", { style: {
+				display: "flex",
+				alignItems: "center",
+				padding: "2px 8px",
+				borderTop: "1px solid var(--dsw-alias-border-l1)",
+				fontSize: "11px",
+				color: "var(--dsw-alias-label-tertiary)"
+			} }, h("span", null, t("editor.saveHint"))));
+		}
+export { apply }

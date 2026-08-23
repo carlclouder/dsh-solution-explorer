@@ -352,7 +352,20 @@ export function apply(ctx: Context, config: Config = {}): void {
             if (staged) args.push('--cached')
             args.push('--', file)
             const result = git(args, root)
-            json(res, result.ok ? { ok: true, value: result.stdout } : { ok: false, error: { message: result.error } })
+            if (!result.ok) { json(res, { ok: false, error: { message: result.error } }); return }
+            // Full-file contents for the side-by-side view: old = HEAD, new = index (staged) or working tree.
+            const headShow = git(['show', 'HEAD:' + file], root)
+            const oldContent = headShow.ok ? headShow.stdout : ''
+            let newContent = ''
+            if (staged) {
+              const idx = git(['show', ':0:' + file], root)
+              newContent = idx.ok ? idx.stdout : ''
+            } else {
+              try {
+                newContent = await fsp.readFile(pathModule.resolve(root, file), 'utf8')
+              } catch { newContent = '' }
+            }
+            json(res, { ok: true, value: { diff: result.stdout, oldContent, newContent } })
             return
           }
           case '/solution-explorer/git-log': {
