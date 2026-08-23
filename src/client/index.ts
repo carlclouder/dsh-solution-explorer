@@ -39,7 +39,8 @@ declare global {
     __solExpRefresh?: () => void
     __solExpClearSearch?: () => void
     __solExpDeleteFile?: (target: string) => void
-    __solExpContextMenu?: (target: string, x: number, y: number) => void
+    __solExpContextMenu?: (target: string, x: number, y: number, isDir?: boolean) => void
+    __solExpPanelContextMenu?: (evt: MouseEvent) => void
     __solExpSearch?: (query: string) => void
     __solExpRefreshSCM?: () => void
     __solExpCommitMsg?: (msg: string) => void
@@ -55,6 +56,17 @@ declare global {
     __solExpSaveFile?: () => Promise<void>
     __solExpGetEditorState?: () => { editorFile: string | null; editorContent: string | null; editorLoading: boolean; editorError: string | null; editorSaving: boolean; editorUnsupported: boolean }
     __solExpEditorListeners?: Set<() => void>
+    __solExpSelect?: (path: string, shift: boolean, ctrl: boolean, isDir: boolean) => void
+    __solExpClearSelection?: () => void
+    __solExpCopy?: () => void
+    __solExpNew?: (type: 'file' | 'dir', dir: string) => Promise<void>
+    __solExpCut?: () => void
+    __solExpPaste?: (target: string) => Promise<void>
+    __solExpDragStart?: (path: string) => void
+    __solExpDragOver?: (path: string, evt: DragEvent) => void
+    __solExpDrop?: (path: string, evt: DragEvent) => Promise<void>
+    __solExpDropFiles?: (target: string, files: FileList | File[]) => Promise<void>
+    __solExpDeletePaths?: (paths: string[]) => Promise<void>
   }
 }
 
@@ -76,6 +88,8 @@ const STYLES = `
 .sol-exp-tree-node { display:flex; align-items:center; gap:2px; padding:2px 8px 2px 4px; cursor:pointer; white-space:nowrap; height:24px; line-height:24px; color:var(--dsw-alias-label-primary); }
 .sol-exp-tree-node:hover { background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.06)); }
 .sol-exp-tree-node.sol-exp-selected { background:var(--dsw-alias-interactive-bg-active,rgba(0,120,212,0.2)); }
+.sol-exp-cut { opacity:.5; }
+.sol-exp-drop-target { outline:1px solid var(--dsw-alias-state-business-primary,#0078d4); outline-offset:-1px; background:var(--dsw-alias-interactive-bg-active,rgba(0,120,212,0.2)); }
 .sol-exp-chevron { display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; flex-shrink:0; color:var(--dsw-alias-label-tertiary,#6e6e6e); }
 .sol-exp-file-icon { margin-right:4px; flex-shrink:0; font-size:14px; line-height:1; }
 .sol-exp-file-name { overflow:hidden; text-overflow:ellipsis; flex:1; min-width:0; }
@@ -187,6 +201,11 @@ export function apply(ctx: ClientContext): void {
     let searching = false
     let expandedPaths = new Set<string>()
     let selectedPath: string | null = null
+    let selectedPaths = new Set<string>()
+    let selectionAnchor: string | null = null
+    let clipboard: { paths: string[]; mode: 'copy' | 'cut' } | null = null
+    let dragPaths: string[] = []
+    let dropTargetPath: string | null = null
     let gitStatus: any = null
     let commitMessage = ''
     let committing = false
@@ -314,7 +333,7 @@ export function apply(ctx: ClientContext): void {
       else if (currentTab === 'search') contentHTML = buildSearchContent()
       else contentHTML = buildExplorerContent()
       return `
-        <div class="sol-exp-panel">
+        <div class="sol-exp-panel" ondragover="event.preventDefault()" ondrop="event.preventDefault();window.__solExpDrop('', event)" oncontextmenu="window.__solExpPanelContextMenu(event)">
           <div class="sol-exp-activity">${activityBarHTML}</div>
           <div class="sol-exp-body"><div class="sol-exp-main">${contentHTML}</div></div>
         </div>
@@ -335,7 +354,7 @@ export function apply(ctx: ClientContext): void {
               <div class="sol-exp-search-item ${selectedPath === r.path ? 'sol-exp-selected' : ''}"
                    onclick="window.__solExpSelectFile('${pathJs}')"
                    data-sol-exp-path="${escapeHtml(r.path)}"
-                   oncontextmenu="event.preventDefault();window.__solExpContextMenu(this.dataset.solExpPath||'', event.pageX, event.pageY)">
+                   oncontextmenu="event.preventDefault();event.stopPropagation();window.__solExpContextMenu(this.dataset.solExpPath||'', event.pageX, event.pageY)">
                 <span class="sol-exp-icon">${r.type === 'directory' ? '📁' : '📄'}</span>
                 <span class="sol-exp-name">${escapeHtml(r.name)}</span>
                 <span class="sol-exp-path">${escapeHtml(r.path)}</span>
@@ -360,7 +379,7 @@ export function apply(ctx: ClientContext): void {
       else if (error) { contentHTML = `<div class="sol-exp-error">${error}</div>` }
       // Search results belong to the Search tab only; the explorer tab always
       // shows the file tree (or the empty hint).
-      else if (treeState) { contentHTML = '<div class="sol-exp-tree">' + (treeState.children || []).map((c: any) => renderTreeNode(c, 0)).join('') + '</div>' }
+      else if (treeState) { contentHTML = '<div class="sol-exp-tree" oncontextmenu="event.preventDefault();event.stopPropagation();window.__solExpContextMenu(\'\', event.pageX, event.pageY, false)" ondragover="event.preventDefault();event.stopPropagation()" ondrop="event.preventDefault();event.stopPropagation();window.__solExpDrop(\'\', event)">' + (treeState.children || []).map((c: any) => renderTreeNode(c, 0)).join('') + '</div>' }
       else { contentHTML = `<div class="sol-exp-empty">${emptyText}</div>` }
       return `
         <div class="sol-exp-header">
@@ -368,6 +387,8 @@ export function apply(ctx: ClientContext): void {
           <div class="sol-exp-header-actions">
             <button class="sol-exp-toolbar-btn" onclick="window.__solExpExpandAll()" title="${t('tree.expand')}"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2h4v4H2V2zm0 8h4v4H2v-4zm8-8h4v4h-4V2zm0 8h4v4h-4v-4z"/></svg></button>
             <button class="sol-exp-toolbar-btn" onclick="window.__solExpCollapseAll()" title="${t('tree.collapse')}"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2h12v2H2V2zm0 5h12v2H2V7zm0 5h12v2H2v-2z"/></svg></button>
+            <button class="sol-exp-toolbar-btn" onclick="window.__solExpNew('file', '')" title="${document.documentElement.lang?.startsWith('zh') ? '新建文件' : 'New file'}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M5 2h4l3 3v9H5V2z"/><path d="M9 2v3h3"/></svg></button>
+            <button class="sol-exp-toolbar-btn" onclick="window.__solExpNew('dir', '')" title="${document.documentElement.lang?.startsWith('zh') ? '新建文件夹' : 'New folder'}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M2 4h4l1.5 1.5H14a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4z"/></svg></button>
             <button class="sol-exp-toolbar-btn" onclick="window.__solExpRefresh()" title="${document.documentElement.lang?.startsWith('zh') ? '刷新' : 'Refresh'}"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2 8a6 6 0 0 1 10.47-4.02L14 5.5V2h1v5h-5V6h2.33A4.5 4.5 0 0 0 3.5 8H2zm12 0a6 6 0 0 1-10.47 4.02L2 10.5V14H1V9h5v1H3.67A4.5 4.5 0 0 0 12.5 8H14z"/></svg></button>
           </div>
         </div>
@@ -457,24 +478,29 @@ export function apply(ctx: ClientContext): void {
       if (!node) return ''
       const isDir = node.type === 'directory'
       const isExpanded = expandedPaths.has(node.path)
-      const isSelected = selectedPath === node.path
+      const isSelected = selectedPaths.has(node.path)
+      const isCut = clipboard?.mode === 'cut' && clipboard.paths.includes(node.path)
+      const isDropTarget = isDir && dropTargetPath === node.path && dragPaths.length > 0
       const hasChildren = isDir && node.children && node.children.length > 0
       const padding = 12 + depth * 16
+      const pathJs = node.path.replace(/'/g, "\\'").replace(/\\/g, "\\\\")
       const chevron = isDir
         ? (hasChildren ? `<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="transform:${isExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};transition:transform .15s ease"><path d="M6 4l4 4-4 4"/></svg>` : '<span style="width:16px;display:inline-block"></span>')
         : '<span style="width:16px;display:inline-block"></span>'
       const icon = isDir ? (isExpanded ? '📂' : '📁') : '📄'
-      const clickHandler = isDir
-        ? `window.__solExpToggleExpand('${node.path.replace(/'/g, "\\'").replace(/\\/g, "\\\\")}')`
-        : `window.__solExpSelectFile('${node.path.replace(/'/g, "\\'").replace(/\\/g, "\\\\")}')`
       const childrenHTML = isDir && isExpanded && hasChildren ? `<div class="sol-exp-tree-children">${node.children.map((c: any) => renderTreeNode(c, depth + 1)).join('')}</div>` : ''
       return `
         <div class="sol-exp-tree-node-wrapper">
-          <div class="sol-exp-tree-node ${isSelected ? 'sol-exp-selected' : ''}"
+          <div class="sol-exp-tree-node ${isSelected ? 'sol-exp-selected' : ''}${isCut ? ' sol-exp-cut' : ''}${isDropTarget ? ' sol-exp-drop-target' : ''}"
                style="padding-left:${padding}px"
-               onclick="${clickHandler}"
+               draggable="true"
+               onclick="window.__solExpSelect('${pathJs}', event.shiftKey, event.ctrlKey || event.metaKey, ${isDir})"
+               ${isDir ? '' : `ondblclick="window.__solExpOpenFile('${pathJs}')"`}
+               ondragstart="window.__solExpDragStart('${pathJs}')"
+               ${isDir ? `ondragover="event.preventDefault();event.stopPropagation();window.__solExpDragOver('${pathJs}')" ondrop="event.preventDefault();event.stopPropagation();window.__solExpDrop('${pathJs}', event)"` : ''}
                data-sol-exp-path="${escapeHtml(node.path)}"
-               oncontextmenu="event.preventDefault();window.__solExpContextMenu(this.dataset.solExpPath||'', event.pageX, event.pageY)">
+               data-sol-exp-isdir="${isDir ? '1' : '0'}"
+               oncontextmenu="event.preventDefault();event.stopPropagation();window.__solExpContextMenu(this.dataset.solExpPath||'', event.pageX, event.pageY, this.dataset.solExpIsdir === '1')">
             <span class="sol-exp-chevron">${chevron}</span>
             <span class="sol-exp-file-icon">${icon}</span>
             <span class="sol-exp-file-name">${escapeHtml(node.name)}</span>
@@ -493,12 +519,167 @@ export function apply(ctx: ClientContext): void {
     window.__solExpToggleExpand = (path: string) => { if (expandedPaths.has(path)) expandedPaths.delete(path); else expandedPaths.add(path); render() }
     window.__solExpSelectFile = async (path: string) => {
       selectedPath = path
-      console.log('[sol-exp] selectFile:', path, 'hasOpenFile:', typeof window.__solExpOpenFile === 'function')
-      if (typeof window.__solExpOpenFile === 'function') {
-        window.__solExpOpenFile(path)
+      if (typeof window.__solExpOpenFile === 'function') window.__solExpOpenFile(path)
+    }
+    window.__solExpClearSelection = () => { if (selectedPaths.size || selectedPath) { selectedPaths = new Set(); selectionAnchor = null; selectedPath = null; render() } }
+    // Tree selection: plain click selects; Ctrl/Cmd toggles; Shift range-selects.
+    window.__solExpSelect = (path: string, shift: boolean, ctrl: boolean, isDir: boolean) => {
+      if (ctrl) {
+        if (selectedPaths.has(path)) selectedPaths.delete(path)
+        else selectedPaths.add(path)
+        selectionAnchor = path
+      } else if (shift && selectionAnchor) {
+        const order: string[] = []
+        const collect = (n: any) => { order.push(n.path); for (const c of (n.children || [])) collect(c) }
+        if (treeState) collect(treeState)
+        const a = order.indexOf(selectionAnchor), b = order.indexOf(path)
+        if (a >= 0 && b >= 0) {
+          const [lo, hi] = a < b ? [a, b] : [b, a]
+          selectedPaths = new Set(order.slice(lo, hi + 1))
+        } else {
+          selectedPaths = new Set([path]); selectionAnchor = path
+        }
       } else {
-        console.log('[sol-exp] __solExpOpenFile not available yet')
+        selectedPaths = new Set([path])
+        selectionAnchor = path
       }
+      selectedPath = path
+      if (isDir) { if (expandedPaths.has(path)) expandedPaths.delete(path); else expandedPaths.add(path) }
+      render()
+    }
+    // ── clipboard: copy / cut / paste ──────────────────────────────
+    window.__solExpCopy = () => { if (selectedPaths.size) { clipboard = { paths: [...selectedPaths], mode: 'copy' }; render() } }
+    window.__solExpCut = () => { if (selectedPaths.size) { clipboard = { paths: [...selectedPaths], mode: 'cut' }; render() } }
+    window.__solExpPaste = async (target: string) => {
+      if (!clipboard || !clipboard.paths.length || !root) return
+      const { paths, mode } = clipboard
+      clipboard = null
+      // Resolve the paste target: a directory, the parent of a file, or root.
+      let targetDir = target
+      if (targetDir) {
+        const find = (n: any): any => {
+          if (n.path === target) return n
+          for (const c of (n.children || [])) { const f = find(c); if (f) return f }
+          return null
+        }
+        const node = treeState ? find(treeState) : null
+        if (!node || node.type !== 'directory') {
+          const i = targetDir.lastIndexOf('/')
+          targetDir = i > 0 ? targetDir.slice(0, i) : ''
+        }
+      }
+      // Friendly guards before hitting the host: cutting into the same directory
+      // is a no-op, and pasting a directory into itself (cut OR copy) is rejected —
+      // fs.cp itself errors with EINVAL for copy-into-own-subtree. Tree paths use
+      // backslashes on Windows, so normalize before comparing.
+      const norm = (p: string) => p.replace(/\\/g, '/')
+      for (const raw of paths) {
+        const src = norm(raw)
+        const tgt = norm(targetDir)
+        const parent = src.includes('/') ? src.slice(0, src.lastIndexOf('/')) : ''
+        if (mode === 'cut' && parent === tgt) { alert('已在目标目录，无需移动'); return }
+        if (tgt && (tgt === src || tgt.startsWith(src + '/'))) { alert('不能移动到自身内部'); return }
+      }
+      let done = 0, failed = 0
+      for (const src of paths) {
+        try {
+          const resp = await fetch('/solution-explorer/paste', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ root, mode, source: src, targetDir }) })
+          const result = await resp.json()
+          if (result.ok) done++
+          else { failed++; console.warn('[sol-exp] paste failed', src, result.error) }
+        } catch (err: any) { failed++; console.warn('[sol-exp] paste error', src, err) }
+      }
+      if (failed) alert(failed + ' 项粘贴失败')
+      render(); loadTree(); loadGitStatus()
+    }
+    // ── create file / folder ──────────────────────────────────────
+    window.__solExpNew = async (type: 'file' | 'dir', dir: string) => {
+      if (!root) return
+      const name = window.prompt(type === 'file' ? '输入文件名' : '输入文件夹名')
+      if (!name || !name.trim()) return
+      const clean = name.trim()
+      const rel = dir ? dir.replace(/\\/g, '/') + '/' + clean : clean
+      try {
+        const resp = await fetch('/solution-explorer/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ root, path: rel, type }) })
+        const result = await resp.json()
+        if (!result.ok) { alert('创建失败: ' + (result.error?.message || '')); return }
+        loadTree(); loadGitStatus()
+      } catch (err: any) { alert('创建失败: ' + (err.message || String(err))) }
+    }
+    // ── tree drag & drop (move) ────────────────────────────────────
+    window.__solExpDragStart = (path: string) => {
+      dragPaths = selectedPaths.has(path) ? [...selectedPaths] : [path]
+    }
+    window.__solExpDragOver = (path: string, evt: DragEvent) => {
+      // Toggle the highlight directly without re-rendering: rebuilding the tree
+      // mid-drag cancels the drag operation in the browser.
+      const clear = () => document.querySelectorAll('.sol-exp-drop-target').forEach(el => el.classList.remove('sol-exp-drop-target'))
+      clear()
+      if (dragPaths.length && !dragPaths.includes(path)) {
+        const node = (evt.target as HTMLElement)?.closest('.sol-exp-tree-node')
+        if (node) node.classList.add('sol-exp-drop-target')
+      }
+      dropTargetPath = path
+    }
+    window.__solExpDrop = async (path: string, evt: DragEvent) => {
+      const files = evt.dataTransfer?.files
+      if (files && files.length > 0) { await window.__solExpDropFiles!(path, files); return }
+      const targetDir = path
+      const sources = dragPaths
+      dragPaths = []; dropTargetPath = null
+      document.querySelectorAll('.sol-exp-drop-target').forEach(el => el.classList.remove('sol-exp-drop-target'))
+      if (!root || !sources.length) { render(); return }
+      // Same-dir / into-itself guards (paths may use backslashes on Windows).
+      {
+        const norm = (p: string) => p.replace(/\\/g, '/')
+        const tgt = norm(targetDir)
+        for (const raw of sources) {
+          const src = norm(raw)
+          const parent = src.includes('/') ? src.slice(0, src.lastIndexOf('/')) : ''
+          if (src === tgt || tgt.startsWith(src + '/')) { alert('不能移动到自身内部'); render(); return }
+          if (parent === tgt) { alert('已在目标目录，无需移动'); render(); return }
+        }
+      }
+      let done = 0, failed = 0
+      for (const src of sources) {
+        try {
+          const resp = await fetch('/solution-explorer/move', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ root, source: src, targetDir }) })
+          const result = await resp.json()
+          if (result.ok) done++
+          else { failed++; console.warn('[sol-exp] move failed', src, result.error) }
+        } catch (err: any) { failed++; console.warn('[sol-exp] move error', src, err) }
+      }
+      if (failed) alert(failed + ' 项移动失败')
+      render(); loadTree(); loadGitStatus()
+    }
+    // ── OS drag-in: copy files into the workspace ──────────────────
+    const bytesToBase64 = (bytes: Uint8Array): string => {
+      let binary = ''
+      const chunk = 0x8000
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)))
+      }
+      return btoa(binary)
+    }
+    window.__solExpDropFiles = async (target: string, files: FileList | File[]) => {
+      const targetDir = target || ''
+      let done = 0, failed = 0, skipped = 0
+      for (const f of Array.from(files)) {
+        if (f.size > 50 * 1024 * 1024) { skipped++; alert('文件过大（>50MB）跳过: ' + f.name); continue }
+        try {
+          const bytes = new Uint8Array(await f.arrayBuffer())
+          const head = bytes.subarray(0, Math.min(4096, bytes.length))
+          const binary = head.includes(0)
+          const content = binary ? bytesToBase64(bytes) : new TextDecoder('utf-8').decode(bytes)
+          const rel = targetDir ? targetDir + '/' + f.name : f.name
+          const resp = await fetch('/solution-explorer/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ root, path: rel, content, binary }) })
+          const result = await resp.json()
+          if (result.ok) done++
+          else { failed++; console.warn('[sol-exp] upload failed', f.name, result.error) }
+        } catch (err: any) { failed++; console.warn('[sol-exp] upload error', f.name, err) }
+      }
+      if (failed) alert(failed + ' 个文件上传失败')
+      render(); loadTree(); loadGitStatus()
     }
     window.__solExpCollapseAll = () => { expandedPaths = new Set(); render() }
     window.__solExpExpandAll = () => {
@@ -524,29 +705,81 @@ export function apply(ctx: ClientContext): void {
         let contextMenuEl: HTMLElement | null = null
     function hideContextMenu() { if (contextMenuEl) { contextMenuEl.remove(); contextMenuEl = null; } }
     document.addEventListener('click', hideContextMenu)
-    window.__solExpContextMenu = (target: string, x: number, y: number) => {
+    // Global drag guards: the browser would otherwise open/ask about dropped
+    // files when the drop lands on an element without an inline preventDefault
+    // (scrollbars, panel edges, re-rendered nodes). These cover the whole panel.
+    const dragGuard = (e: Event) => { if (activeEl?.contains(e.target as Node)) e.preventDefault() }
+    document.addEventListener('dragenter', dragGuard)
+    document.addEventListener('dragover', dragGuard)
+    document.addEventListener('drop', dragGuard)
+    // Clicking blank space inside the panel clears the tree selection.
+    document.addEventListener('click', (e) => {
+      if (!activeEl?.contains(e.target as Node)) return
+      const el = e.target as HTMLElement
+      if (el.closest('.sol-exp-tree-node') || el.closest('.sol-exp-search-item') || el.closest('.sol-exp-scm-item') || el.closest('.sol-exp-context-menu')) return
+      if (selectedPaths.size || selectedPath) { selectedPaths = new Set(); selectionAnchor = null; selectedPath = null; render() }
+    })
+    document.addEventListener('dragend', () => { if (dragPaths.length || dropTargetPath) { dragPaths = []; dropTargetPath = null; render() } })
+    // Panel-level right-click: skip the chrome (header / activity bar / commit box),
+    // otherwise show the blank-area paste menu.
+    window.__solExpPanelContextMenu = (evt: MouseEvent) => {
+      evt.preventDefault()
+      const el = evt.target as HTMLElement | null
+      if (el && (el.closest('.sol-exp-header') || el.closest('.sol-exp-activity') || el.closest('.sol-exp-commit-box'))) return
+      window.__solExpContextMenu!('', evt.pageX, evt.pageY, false)
+    }
+    window.__solExpContextMenu = (target: string, x: number, y: number, isDir = false) => {
       hideContextMenu()
+      // Right-click on an unselected node selects it alone; on a selected node keeps the set.
+      if (target && !selectedPaths.has(target)) {
+        selectedPaths = new Set([target]); selectionAnchor = target; selectedPath = target
+      }
       const menu = document.createElement('div'); menu.className = 'sol-exp-context-menu'
       menu.style.left = Math.min(x, window.innerWidth - 160) + 'px'; menu.style.top = Math.min(y, window.innerHeight - 80) + 'px'
       menu.addEventListener('click', (e) => e.stopPropagation()); menu.addEventListener('contextmenu', (e) => e.preventDefault())
-      const deleteItem = document.createElement('div'); deleteItem.className = 'sol-exp-context-menu-item danger'; deleteItem.textContent = '删除'
-      deleteItem.addEventListener('click', () => { hideContextMenu(); window.__solExpDeleteFile!(target) }); menu.appendChild(deleteItem)
-      const copyRelItem = document.createElement('div'); copyRelItem.className = 'sol-exp-context-menu-item'; copyRelItem.textContent = '复制相对路径'
-      copyRelItem.addEventListener('click', () => { hideContextMenu(); navigator.clipboard.writeText(target) }); menu.appendChild(copyRelItem)
-      const copyAbsItem = document.createElement('div'); copyAbsItem.className = 'sol-exp-context-menu-item'; copyAbsItem.textContent = '复制绝对路径'
-      copyAbsItem.addEventListener('click', () => { hideContextMenu(); const sep = root.endsWith('/') || root.endsWith('\\') ? '' : '/'; navigator.clipboard.writeText(root + sep + target) }); menu.appendChild(copyAbsItem)
+      const addItem = (label: string, danger: boolean, onClick: () => void) => {
+        const item = document.createElement('div'); item.className = 'sol-exp-context-menu-item' + (danger ? ' danger' : '')
+        item.textContent = label
+        item.addEventListener('click', () => { hideContextMenu(); onClick() })
+        menu.appendChild(item)
+      }
+      const targets = target && selectedPaths.has(target) ? [...selectedPaths] : (target ? [target] : [])
+      // New file / folder: available everywhere. A directory creates inside it,
+      // a file creates beside it (its parent), blank creates in the root.
+      const base = isDir ? target : (target ? (target.includes('/') ? target.slice(0, target.lastIndexOf('/')) : target.includes('\\') ? target.slice(0, target.lastIndexOf('\\')) : '') : '')
+      addItem('新建文件', false, () => window.__solExpNew!('file', base))
+      addItem('新建文件夹', false, () => window.__solExpNew!('dir', base))
+      if (targets.length) {
+        addItem('复制', false, () => { window.__solExpCopy!() })
+        addItem('剪切', false, () => { window.__solExpCut!() })
+        addItem('删除 (' + targets.length + ')', true, () => window.__solExpDeletePaths!(targets))
+        addItem('复制相对路径', false, () => navigator.clipboard.writeText(targets.join('\n')))
+        addItem('复制绝对路径', false, () => { const sep = root.endsWith('/') || root.endsWith('\\') ? '' : '/'; navigator.clipboard.writeText(targets.map(p => root + sep + p).join('\n')) })
+      }
+      if (clipboard && clipboard.paths.length) {
+        addItem('粘贴到此处' + (clipboard.mode === 'cut' ? '（剪切）' : ''), false, () => window.__solExpPaste!(isDir ? target : target || ''))
+      }
+      // Nothing to offer (no targets, no clipboard) — don't show an empty box.
+      if (menu.childNodes.length === 0) return
       document.body.appendChild(menu); contextMenuEl = menu
     }
-    window.__solExpDeleteFile = async (target: string) => {
-      if (!root || !target) return
-      if (!window.confirm('确定删除：' + target + '?')) return
-      try {
-        const resp = await fetch('/solution-explorer/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ root, path: target }) })
-        const result = await resp.json()
-        if (result.ok) { if (selectedPath === target) selectedPath = null; await loadTree(); await loadGitStatus() }
-        else { alert(t('error.read') + ': ' + (result.error?.message || '')) }
-      } catch (err: any) { alert(t('error.read') + ': ' + (err.message || String(err))) }
+    window.__solExpDeletePaths = async (paths: string[]) => {
+      if (!root || !paths.length) return
+      if (!window.confirm('确定删除 ' + paths.length + ' 项？')) return
+      let done = 0, failed = 0
+      for (const p of paths) {
+        try {
+          const resp = await fetch('/solution-explorer/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ root, path: p }) })
+          const result = await resp.json()
+          if (result.ok) done++
+          else { failed++; console.warn('[sol-exp] delete failed', p, result.error) }
+        } catch (err: any) { failed++; console.warn('[sol-exp] delete error', p, err) }
+      }
+      for (const p of paths) selectedPaths.delete(p)
+      if (failed) alert(failed + ' 项删除失败')
+      render(); loadTree(); loadGitStatus()
     }
+    window.__solExpDeleteFile = async (target: string) => { if (target) await window.__solExpDeletePaths!([target]) }
     window.__solExpToggleSection = (id: string) => { const el = document.querySelector(`[data-section="${id}"]`); if (el) el.classList.toggle('collapsed') }
 
     const PANEL_WIDTH = 280; const PANEL_MIN = 264; const PANEL_MAX = 420
@@ -582,6 +815,12 @@ export function apply(ctx: ClientContext): void {
       panelCol.style.display = 'flex'; panelCol.style.flexDirection = 'column'
       panelCol.style.borderLeft = '1px solid var(--dsw-alias-border-l2, #333)'
       frame.appendChild(panelCol); activeEl = panelCol; render()
+      // Stop drag events at the panel (bubble phase, after our own target
+      // handlers ran) so the host app's whole-page image-drop overlay
+      // (ui-attachment) does not fire while dragging over our sidebar.
+      panelCol.addEventListener('dragenter', (e) => e.stopPropagation())
+      panelCol.addEventListener('dragover', (e) => e.stopPropagation())
+      panelCol.addEventListener('drop', (e) => e.stopPropagation())
       resizeHandle = document.createElement('div'); resizeHandle.className = 'sol-exp-resize-handle'
       resizeHandle.addEventListener('pointerdown', (e: PointerEvent) => {
         e.preventDefault(); resizeHandle!.dataset.dragging = 'true'; resizeHandle!.setPointerCapture(e.pointerId)
@@ -693,9 +932,15 @@ export function apply(ctx: ClientContext): void {
         '__solExpCommitMsg', '__solExpCommit', '__solExpStage', '__solExpUnstage',
         '__solExpDiscard', '__solExpStageAll', '__solExpUnstageAll', '__solExpDiscardAll',
         '__solExpToggleSection', '__solExpClearSearch', '__solExpDeleteFile', '__solExpContextMenu',
-        '__solExpOpenFile', '__solExpSaveFile', '__solExpGetEditorState', '__solExpEditorListeners']
+        '__solExpOpenFile', '__solExpSaveFile', '__solExpGetEditorState', '__solExpEditorListeners',
+        '__solExpSelect', '__solExpCopy', '__solExpCut', '__solExpPaste',
+        '__solExpDragStart', '__solExpDragOver', '__solExpDrop', '__solExpDropFiles', '__solExpDeletePaths', '__solExpPanelContextMenu', '__solExpClearSelection', '__solExpNew',
+      ]
       keys.forEach(k => delete (window as any)[k])
-      hideContextMenu(); document.removeEventListener('click', hideContextMenu)
+      document.removeEventListener('click', hideContextMenu)
+      document.removeEventListener('dragenter', dragGuard)
+      document.removeEventListener('dragover', dragGuard)
+      document.removeEventListener('drop', dragGuard)
     }
   }, 'dsh-solution-explorer: wiring')
 
