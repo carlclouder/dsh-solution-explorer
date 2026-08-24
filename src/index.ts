@@ -428,6 +428,16 @@ export function apply(ctx: Context, config: Config = {}): void {
                 message: parts.slice(6).join('|') || '',
               }
             })
+            // Unpushed (outgoing) commits: HEAD commits not yet on the upstream.
+            // Without an upstream, everything is local-only → all unpushed.
+            const upstreamLog = git(['log', '--format=%H', '@{upstream}..HEAD'], root)
+            let unpushedSet: Set<string>
+            if (upstreamLog.ok) {
+              unpushedSet = new Set(upstreamLog.stdout.split('\n').filter(Boolean))
+            } else {
+              unpushedSet = new Set(commits.map((c) => c.hash))
+            }
+            for (const c of commits) (c as { unpushed?: boolean }).unpushed = unpushedSet.has(c.hash)
             json(res, { ok: true, value: commits })
             return
           }

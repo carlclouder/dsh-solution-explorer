@@ -822,7 +822,10 @@ function renderGraphRow(commit) {
     const color = GRAPH_COLORS[lane.color % GRAPH_COLORS.length];
     if (i === idx) {
       svg += `<line x1="${x}" y1="0" x2="${x}" y2="${rowH / 2 - nodeR}" stroke="${color}" stroke-width="2"/>`;
-      svg += `<circle cx="${x}" cy="${rowH / 2}" r="${nodeR}" fill="${color}"/>`;
+      // Unpushed (local-only) commits: hollow node in the theme's primary label
+      // color (auto light/dark); pushed commits: solid lane color.
+      if (commit.unpushed) svg += `<circle cx="${x}" cy="${rowH / 2}" r="${nodeR + 1}" fill="none" stroke="var(--dsw-alias-label-primary,#d4d4d4)" stroke-width="2.5"/>`;
+      else svg += `<circle cx="${x}" cy="${rowH / 2}" r="${nodeR}" fill="${color}"/>`;
       svg += `<line x1="${x}" y1="${rowH / 2 + nodeR}" x2="${x}" y2="${rowH}" stroke="${color}" stroke-width="2"/>`;
     } else {
       svg += `<line x1="${x}" y1="0" x2="${x}" y2="${rowH}" stroke="${color}" stroke-width="2" opacity="0.55"/>`;
