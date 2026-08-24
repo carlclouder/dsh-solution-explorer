@@ -849,15 +849,15 @@ window.__solExpCommitDetail = async (hash) => {
   if (!detailEl) return;
   if (!graphDetailOpen) { detailEl.style.display = "none"; return; }
   detailEl.style.display = "block";
-  detailEl.innerHTML = '<div style="color:var(--dsw-alias-label-secondary,#969696)">Loading…</div>';
+  detailEl.innerHTML = '<div style="color:var(--dsw-alias-label-secondary,#969696)">加载中…</div>';
   try {
     const result = await (await fetch(`/solution-explorer/git-commit-detail?root=${encodeURIComponent(gitRoot())}&hash=${encodeURIComponent(hash)}`)).json();
-    if (!result.ok || !result.value) throw new Error(result.error?.message || "load failed");
+    if (!result.ok || !result.value) throw new Error(result.error?.message || "加载失败");
     const c = result.value;
     const parentsHtml = (c.parents || []).map((p) => `<span style="font-family:monospace;color:var(--dsw-alias-label-tertiary,#6e6e6e)">${p.substring(0, 8)}</span>`).join(" ") || "—";
-    const filesHtml = (c.files || []).slice(0, 60).map((f) => `<div class="sol-exp-commit-detail-file" title="${f.replace(/"/g, "&quot;")}">${escapeHtml(f)}</div>`).join("") || '<div style="padding-left:52px;color:var(--dsw-alias-label-tertiary,#6e6e6e)">(no files)</div>';
+    const filesHtml = (c.files || []).slice(0, 60).map((f) => `<div class="sol-exp-commit-detail-file" title="${f.replace(/"/g, "&quot;")}">${escapeHtml(f)}</div>`).join("") || '<div style="padding-left:52px;color:var(--dsw-alias-label-tertiary,#6e6e6e)">（无文件）</div>';
     detailEl.innerHTML = `
-      <div class="sol-exp-commit-detail-row"><button class="sol-exp-commit-detail-close" title="Close" onclick="window.__solExpCommitDetail('${hash}')">✕</button></div>
+      <div class="sol-exp-commit-detail-row"><button class="sol-exp-commit-detail-close" title="关闭" onclick="window.__solExpCommitDetail('${hash}')">✕</button></div>
       <div class="sol-exp-commit-detail-row"><span class="sol-exp-commit-detail-label">commit</span><span class="sol-exp-commit-detail-val" style="font-family:monospace">${c.hash}</span></div>
       <div class="sol-exp-commit-detail-row"><span class="sol-exp-commit-detail-label">author</span><span class="sol-exp-commit-detail-val">${escapeHtml(c.author)} &lt;${escapeHtml(c.email)}&gt;</span></div>
       <div class="sol-exp-commit-detail-row"><span class="sol-exp-commit-detail-label">date</span><span class="sol-exp-commit-detail-val">${new Date(c.timestamp).toLocaleString()}</span></div>
@@ -875,7 +875,7 @@ window.__solExpCommitCheckout = async (hash) => {
   const ok = window.confirm(zh ? `Checkout 到 ${hash.substring(0, 8)}？\n注意：将进入 detached HEAD 状态（不在任何分支上）。` : `Checkout ${hash.substring(0, 8)}?\nNote: this enters a detached HEAD state.`);
   if (!ok) return;
   const result = await (await fetch("/solution-explorer/git-branch-checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name: hash }) })).json();
-  if (!result.ok) alert(result.error?.message || "checkout failed");
+  if (!result.ok) alert(result.error?.message || "切换失败");
   else { await loadGitStatus(); await loadRecentCommits(); }
 };
 async function loadRemotes() {
@@ -893,12 +893,12 @@ async function loadTags() {
 window.__solExpGitInit = async () => {
   if (!window.confirm(t("scm.init.confirm"))) return;
   const result = await (await fetch("/solution-explorer/git-init", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot() }) })).json();
-  if (!result.ok) alert(result.error?.message || "init failed");
+  if (!result.ok) alert(result.error?.message || "初始化失败");
   else { await loadRepos(); await loadGitStatus(); window.__solExpRefresh(); }
 };
 window.__solExpFetch = async () => {
   const result = await (await fetch("/solution-explorer/git-fetch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot() }) })).json();
-  if (!result.ok) showToast(result.error?.message || "fetch failed", true);
+  if (!result.ok) showToast(result.error?.message || "抓取失败", true);
   else {
     await loadGitStatus(); await loadBranches();
     const out = (result.value || "").trim();
@@ -908,7 +908,7 @@ window.__solExpFetch = async () => {
 window.__solExpPull = async () => {
   if (!window.confirm(t("scm.sync.pullConfirm"))) return;
   const result = await (await fetch("/solution-explorer/git-pull", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot() }) })).json();
-  if (!result.ok) showToast(result.error?.message || "pull failed", true);
+  if (!result.ok) showToast(result.error?.message || "拉取失败", true);
   else {
     await loadGitStatus(); await loadRecentCommits();
     const out = (result.value || "").trim();
@@ -918,7 +918,7 @@ window.__solExpPull = async () => {
 window.__solExpPush = async () => {
   if (!window.confirm(t("scm.sync.pushConfirm"))) return;
   const result = await (await fetch("/solution-explorer/git-push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot() }) })).json();
-  if (!result.ok) showToast(result.error?.message || "push failed", true);
+  if (!result.ok) showToast(result.error?.message || "推送失败", true);
   else {
     await loadGitStatus();
     const out = (result.value || "").trim();
@@ -928,7 +928,7 @@ window.__solExpPush = async () => {
 window.__solExpSync = async () => {
   if (!window.confirm(t("scm.sync.syncConfirm"))) return;
   const result = await (await fetch("/solution-explorer/git-sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot() }) })).json();
-  if (!result.ok) showToast(result.error?.message || "sync failed", true);
+  if (!result.ok) showToast(result.error?.message || "同步失败", true);
   else {
     await loadGitStatus(); await loadRecentCommits();
     const out = (result.value || "").trim();
@@ -941,19 +941,19 @@ window.__solExpRemoteUrl = (v) => { remoteUrl = v; };
 window.__solExpRemoteAdd = async () => {
   if (!remoteName.trim() || !remoteUrl.trim()) return;
   const result = await (await fetch("/solution-explorer/git-remote-add", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name: remoteName.trim(), url: remoteUrl.trim() }) })).json();
-  if (!result.ok) alert(result.error?.message || "add remote failed");
+  if (!result.ok) alert(result.error?.message || "添加远程失败");
   else { remoteName = ""; remoteUrl = ""; await loadRemotes(); render(); }
 };
 window.__solExpRemoteRemove = async (name) => {
   if (!window.confirm(t("scm.remote.removeConfirm").replace("{name}", name))) return;
   const result = await (await fetch("/solution-explorer/git-remote-remove", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name }) })).json();
-  if (!result.ok) alert(result.error?.message || "remove failed"); else { await loadRemotes(); render(); }
+  if (!result.ok) alert(result.error?.message || "删除远程失败"); else { await loadRemotes(); render(); }
 };
 window.__solExpRemoteSetUrl = async (name) => {
-  const url = window.prompt("New URL for " + name);
+  const url = window.prompt("新的 URL（" + name + "）");
   if (!url || !url.trim()) return;
   const result = await (await fetch("/solution-explorer/git-remote-set-url", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name, url: url.trim() }) })).json();
-  if (!result.ok) alert(result.error?.message || "set-url failed"); else await loadRemotes();
+  if (!result.ok) alert(result.error?.message || "修改地址失败"); else await loadRemotes();
 };
 window.__solExpBranchPanel = async () => { branchPanelOpen = !branchPanelOpen; if (branchPanelOpen) { await loadBranches(); await loadTags(); } render(); };
 window.__solExpBranchName = (v) => { branchName = v; };
@@ -963,34 +963,49 @@ window.__solExpBranchCreate = async () => {
   const body: { root: string; name: string; from?: string } = { root: gitRoot(), name: branchName.trim() };
   if (branchFrom.trim()) body.from = branchFrom.trim();
   const result = await (await fetch("/solution-explorer/git-branch-create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
-  if (!result.ok) alert(result.error?.message || "create failed");
+  if (!result.ok) alert(result.error?.message || "创建分支失败");
   else { branchName = ""; branchFrom = ""; await loadBranches(); render(); }
 };
 window.__solExpBranchCheckout = async (name, isRemote) => {
   const result = await (await fetch("/solution-explorer/git-branch-checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name, track: isRemote === true }) })).json();
-  if (!result.ok) alert(result.error?.message || "checkout failed");
-  else { await loadGitStatus(); await loadRecentCommits(); await loadBranches(); render(); }
+  if (!result.ok) showToast(result.error?.message || "切换失败", true);
+  else {
+    // Order matters: update state, rebuild the DOM, then load commits into the
+    // fresh list node — loading before render() lets render wipe the result
+    // and leave the history stuck on "Loading…".
+    await loadGitStatus();
+    await loadBranches();
+    render();
+    await loadRecentCommits();
+  }
 };
 window.__solExpBranchDelete = async (name) => {
   if (!window.confirm(t("scm.branch.deleteConfirm").replace("{name}", name))) return;
-  const result = await (await fetch("/solution-explorer/git-branch-delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name }) })).json();
-  if (!result.ok) alert(result.error?.message || "delete failed"); else { await loadBranches(); render(); }
+  let result = await (await fetch("/solution-explorer/git-branch-delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name }) })).json();
+  // Safe delete (-d) refuses unmerged branches — offer a forced delete (-D).
+  if (!result.ok && String(result.error?.message || "").includes("not fully merged")) {
+    const zh = document.documentElement.lang?.startsWith("zh");
+    const ok = window.confirm(zh ? "该分支有未合并的提交，确定强制删除？此操作不可撤销。" : "This branch has unmerged commits. Force delete? This cannot be undone.");
+    if (!ok) return;
+    result = await (await fetch("/solution-explorer/git-branch-delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name, force: true }) })).json();
+  }
+  if (!result.ok) showToast(result.error?.message || "删除失败", true); else { await loadBranches(); render(); }
 };
 window.__solExpBranchRename = async (name) => {
   const newName = window.prompt(t("scm.branch.newName") + " (" + name + ")");
   if (!newName || !newName.trim()) return;
   const result = await (await fetch("/solution-explorer/git-branch-rename", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), oldName: name, newName: newName.trim() }) })).json();
-  if (!result.ok) alert(result.error?.message || "rename failed"); else { await loadBranches(); render(); }
+  if (!result.ok) alert(result.error?.message || "重命名失败"); else { await loadBranches(); render(); }
 };
 window.__solExpBranchMerge = async (name) => {
   if (!window.confirm(t("scm.branch.mergeConfirm").replace("{name}", name))) return;
   const result = await (await fetch("/solution-explorer/git-branch-merge", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name }) })).json();
-  if (!result.ok) alert(result.error?.message || "merge failed"); else { await loadGitStatus(); await loadRecentCommits(); }
+  if (!result.ok) alert(result.error?.message || "合并失败"); else { await loadGitStatus(); await loadRecentCommits(); }
 };
 window.__solExpBranchPublish = async (name) => {
   if (!window.confirm(t("scm.branch.publishConfirm").replace("{name}", name))) return;
   const result = await (await fetch("/solution-explorer/git-branch-publish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name }) })).json();
-  if (!result.ok) alert(result.error?.message || "publish failed"); else await loadBranches();
+  if (!result.ok) alert(result.error?.message || "发布失败"); else await loadBranches();
 };
 async function loadRecentCommits() {
 					if (!root || !gitStatus || gitStatus.branch === "unknown") return;
@@ -1473,7 +1488,7 @@ async function doStage(files) {
 
 					const pathJs = item.path.replace(/'/g, "\\'");
 
-					const action = section === "staged" ? `<button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpUnstage(['${pathJs}'])" title="${t("scm.unstage")}">◦</button>` : section === "conflicts" ? `<button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpStage(['${pathJs}'])" title="Mark resolved">✓</button>` : `<button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpStage(['${pathJs}'])" title="${t("scm.stage")}">+</button>
+					const action = section === "staged" ? `<button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpUnstage(['${pathJs}'])" title="${t("scm.unstage")}">◦</button>` : section === "conflicts" ? `<button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpStage(['${pathJs}'])" title="标记为已解决">✓</button>` : `<button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpStage(['${pathJs}'])" title="${t("scm.stage")}">+</button>
 
            <button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpDiscard(['${pathJs}'])" title="${t("scm.discard")}">✕</button>`;
 
@@ -2904,11 +2919,11 @@ styleObs = new MutationObserver(syncGrid);
 
 						})).json();
 
-						if (!result.ok) alert("Save failed: " + (result.error?.message || ""));
+						if (!result.ok) alert("保存失败: " + (result.error?.message || ""));
 
 					} catch (err) {
 
-						alert("Save failed: " + (err.message || String(err)));
+						alert("保存失败: " + (err.message || String(err)));
 
 					}
 
