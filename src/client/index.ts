@@ -58,7 +58,7 @@ declare global {
 
     __solExpToggleExpand?: (path: string) => void
 
-    __solExpSelectFile?: (path: string) => Promise<void>
+    __solExpSelectFile?: (path: string, isDir?: boolean) => Promise<void>
 
     __solExpCollapseAll?: () => void
 
@@ -123,7 +123,7 @@ declare global {
 
     __solExpOpenDiff?: (path: string, staged: boolean) => Promise<void>
 
-    __solExpGetDiffState?: () => { diffPath: string | null; diffStaged: boolean; diffContent: string | null; diffOldContent: string; diffNewContent: string; diffLoading: boolean; diffRoot: string }
+    __solExpGetDiffState?: () => { diffPath: string | null; diffStaged: boolean; diffContent: string | null; diffOldContent: string; diffNewContent: string; diffLoading: boolean; diffUnsupported: boolean; diffRoot: string }
 
     __solExpDiffListeners?: Set<() => void>
 
@@ -209,7 +209,7 @@ declare global {
 
 .sol-exp-git-M { color:#e2b714; } .sol-exp-git-A { color:#4ec9b0; } .sol-exp-git-D { color:#f14c4c; }
 
-.sol-exp-git-R { color:#4ec9b0; } .sol-exp-git-q { color:#4ec9b0; } .sol-exp-git-x { color:#6e6e6e; } .sol-exp-git-\? { color:#4ec9b0; }
+.sol-exp-git-R { color:#4ec9b0; } .sol-exp-git-q { color:#4ec9b0; } .sol-exp-git-x { color:#6e6e6e; } .sol-exp-git-\? { color:#4ec9b0; } .sol-exp-git-U { color:#f14c4c; }
 
 .sol-exp-scm-section { }
 
@@ -447,6 +447,8 @@ declare global {
 		let _diffNewContent = "";
 
 		let _diffLoading = false;
+
+		let _diffUnsupported = false;
 
 		const _diffListeners = /* @__PURE__ */ new Set<() => void>();
 
@@ -1278,7 +1280,7 @@ async function doStage(files) {
 
               <div class="sol-exp-search-item ${selectedPath === r.path ? "sol-exp-selected" : ""}"
 
-                   onclick="window.__solExpSelectFile('${pathJs}')"
+                   onclick="window.__solExpSelectFile('${pathJs}', ${r.type === "directory"})"
 
                    data-sol-exp-path="${escapeHtml(r.path)}"
 
@@ -1498,11 +1500,21 @@ async function doStage(files) {
 
 					const staged = section === "staged";
 
+					// A trailing slash marks an untracked directory entry (a folder
+					// whose contents are all ignored) — reveal it in the tree.
+					const isDir = item.path.endsWith("/") || item.path.endsWith("\\");
+
+					// Images open in the editor's image preview (same as the file
+					// tree); everything else opens the diff view.
+					const openJs = isDir ? `window.__solExpSelectFile('${pathJs}', true)` : isImageFile(item.path) ? `window.__solExpOpenFile('${pathJs}')` : `window.__solExpOpenDiff('${pathJs}', ${staged})`;
+
 					return `
 
-        <div class="sol-exp-scm-item" title="${t("file.open")}" onclick="window.__solExpOpenDiff('${pathJs}', ${staged})">
+        <div class="sol-exp-scm-item" title="${t("file.open")}" onclick="${openJs}">
 
-          <span class="sol-exp-scm-status sol-exp-git-${statusChar === "?" ? "\\?" : statusChar}">${statusChar}</span>
+          <span class="sol-exp-file-icon">${isDir ? folderIcon(false) : fileIcon(item.path)}</span>
+
+          <span class="sol-exp-scm-status sol-exp-git-${gitStatusClass(statusChar)}">${statusChar}</span>
 
           <span class="sol-exp-scm-path">${escapeHtml(item.path)}</span>
 
@@ -1578,6 +1590,24 @@ async function doStage(files) {
 					return `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3.5 1.8h6.2l2.5 2.5v9.4a0.8 0.8 0 0 1-0.8 0.8H3.8a0.8 0.8 0 0 1-0.8-0.8V2.6a0.8 0.8 0 0 1 0.8-0.8z" stroke="${color}" stroke-width="1.3" stroke-linejoin="round"/><path d="M9.7 1.8v2.5h2.5" stroke="${color}" stroke-width="1.3" stroke-linejoin="round"/>${badge}</svg>`;
 				}
 
+				// Image extensions that open in the editor's image preview (kept in
+				// sync with the host's IMAGE_EXT set).
+				const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif"]);
+
+				function isImageFile(name) {
+					const ext = (name.includes(".") ? name.split(".").pop() : name).toLowerCase();
+					return IMAGE_EXTS.has(ext);
+				}
+
+				// Shared git-status class mapping so the tree badge, the SCM badge
+				// and any future surfaces render the same way: '?' -> q (untracked),
+				// '!' -> x (ignored), multi-letter conflict states -> first letter.
+				function gitStatusClass(s) {
+					if (s === "?") return "q";
+					if (s === "!") return "x";
+					return s.length > 1 ? s[0] : s;
+				}
+
 				function renderTreeNode(node, depth) {
 
 					if (!node) return "";
@@ -1596,9 +1626,8 @@ async function doStage(files) {
 
 					const padding = 12 + depth * 16;
 
-					// Map git status letters that are not CSS-safe to stable class
-					// suffixes: '?' -> q (untracked), '!' -> x (ignored/excluded).
-					const gitCls = node.gitStatus ? (node.gitStatus === "?" ? "q" : node.gitStatus === "!" ? "x" : node.gitStatus) : "";
+					// Map git status letters to stable shared class suffixes.
+					const gitCls = node.gitStatus ? gitStatusClass(node.gitStatus) : "";
 
 					const pathJs = node.path.replace(/'/g, "\\'").replace(/\\/g, "\\\\");
 
@@ -1678,7 +1707,33 @@ async function doStage(files) {
 
 				};
 
-				window.__solExpSelectFile = async (path) => {
+				window.__solExpSelectFile = async (path, isDir) => {
+
+					if (isDir) {
+
+						// Directories reveal in the tree (expand ancestors + select)
+						// instead of being opened as files — consistent with the tree.
+						const parts = path.split("/").filter(Boolean);
+
+						let acc = "";
+
+						for (let i = 0; i < parts.length - 1; i++) {
+
+							acc = acc ? acc + "/" + parts[i] : parts[i];
+
+							expandedPaths.add(acc);
+
+						}
+
+						selectedPaths = /* @__PURE__ */ new Set([path]);
+
+						selectedPath = null;
+
+						render();
+
+						return;
+
+					}
 
 					selectedPath = path;
 
@@ -3003,6 +3058,8 @@ styleObs = new MutationObserver(syncGrid);
 
 						if (!result.ok) alert("保存失败: " + (result.error?.message || ""));
 
+						else { await loadGitStatus(); await loadTree(); }
+
 					} catch (err) {
 
 						alert("保存失败: " + (err.message || String(err)));
@@ -3053,13 +3110,15 @@ styleObs = new MutationObserver(syncGrid);
 
 					_diffLoading = true;
 
+					_diffUnsupported = false;
+
 					_notifyDiffListeners();
 
 					try {
 
 						const result = await (await fetch("/solution-explorer/git-diff?root=" + encodeURIComponent(gitRoot()) + "&file=" + encodeURIComponent(path) + "&staged=" + staged)).json();
 
-						if (result.ok) { _diffContent = result.value.diff ?? result.value; _diffOldContent = result.value.oldContent ?? ""; _diffNewContent = result.value.newContent ?? "" }
+						if (result.ok) { _diffUnsupported = result.value.unsupported === true; if (_diffUnsupported) { _diffContent = null; _diffOldContent = ""; _diffNewContent = "" } else { _diffContent = result.value.diff ?? result.value; _diffOldContent = result.value.oldContent ?? ""; _diffNewContent = result.value.newContent ?? "" } }
 
 						else { _diffContent = null; _diffOldContent = ""; _diffNewContent = "" }
 
@@ -3100,6 +3159,8 @@ styleObs = new MutationObserver(syncGrid);
 					diffNewContent: _diffNewContent,
 
 					diffLoading: _diffLoading,
+
+					diffUnsupported: _diffUnsupported,
 
 					diffRoot: _diffRoot
 
@@ -3432,6 +3493,16 @@ styleObs = new MutationObserver(syncGrid);
 					color: "var(--dsw-alias-label-tertiary)"
 
 				} }, t("loading"));
+
+				if (dstate.diffUnsupported) return h("div", { style: {
+
+					padding: "16px",
+
+					textAlign: "center",
+
+					color: "var(--dsw-alias-label-tertiary)"
+
+				} }, document.documentElement.lang?.startsWith("zh") ? "二进制文件无法预览差异" : "Cannot preview diff of a binary file");
 
 				if (!diffRows || diffRows.path !== dstate.diffPath || diffRows.staged !== dstate.diffStaged) {
 
