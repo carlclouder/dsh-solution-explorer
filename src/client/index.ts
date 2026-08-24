@@ -209,7 +209,7 @@ declare global {
 
 .sol-exp-git-M { color:#e2b714; } .sol-exp-git-A { color:#4ec9b0; } .sol-exp-git-D { color:#f14c4c; }
 
-.sol-exp-git-R { color:#4ec9b0; } .sol-exp-git-q { color:#6e6e6e; }
+.sol-exp-git-R { color:#4ec9b0; } .sol-exp-git-q { color:#4ec9b0; } .sol-exp-git-x { color:#6e6e6e; } .sol-exp-git-\? { color:#4ec9b0; }
 
 .sol-exp-scm-section { }
 
@@ -1528,6 +1528,10 @@ async function doStage(files) {
 
 					const padding = 12 + depth * 16;
 
+					// Map git status letters that are not CSS-safe to stable class
+					// suffixes: '?' -> q (untracked), '!' -> x (ignored/excluded).
+					const gitCls = node.gitStatus ? (node.gitStatus === "?" ? "q" : node.gitStatus === "!" ? "x" : node.gitStatus) : "";
+
 					const pathJs = node.path.replace(/'/g, "\\'").replace(/\\/g, "\\\\");
 
 					const chevron = isDir ? hasChildren ? `<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="transform:${isExpanded ? "rotate(90deg)" : "rotate(0deg)"};transition:transform .15s ease"><path d="M6 4l4 4-4 4"/></svg>` : "<span style=\"width:16px;display:inline-block\"></span>" : "<span style=\"width:16px;display:inline-block\"></span>";
@@ -1564,9 +1568,9 @@ async function doStage(files) {
 
             <span class="sol-exp-file-icon">${icon}</span>
 
-            <span class="sol-exp-file-name">${escapeHtml(node.name)}</span>
+            <span class="sol-exp-file-name${gitCls ? " sol-exp-git-" + gitCls : ""}">${escapeHtml(node.name)}</span>
 
-            ${node.gitStatus ? `<span class="sol-exp-git-letter sol-exp-git-${node.gitStatus === "?" ? "q" : node.gitStatus}">${node.gitStatus}</span>` : ""}
+            ${node.gitStatus ? `<span class="sol-exp-git-letter sol-exp-git-${gitCls}">${node.gitStatus}</span>` : ""}
 
           </div>
 

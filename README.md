@@ -16,8 +16,10 @@ layout.
 ## Features
 
 - **File Explorer** — browse the current session workspace as a directory tree
-  with expand/collapse, VS Code-style git status markers (M/A/D/R/?), and
-  directory "modified" indicators.
+  with expand/collapse, VS Code-style git status markers (M/A/D/R/?), names
+  color-coded by status (green untracked / yellow modified / grey ignored),
+  `.gitignore`-excluded files and folders shown grey, and directory "modified"
+  indicators.
 - **Source Control** — staged / unstaged / untracked change lists with
   stage / unstage / discard (per-file or all), commit with a message, and a
   branch info bar. **Diff view**: full-file side-by-side compare with an

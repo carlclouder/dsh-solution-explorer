@@ -87,7 +87,7 @@ function isValidRefName(name: string): boolean {
 /** Get the structured git status of a repo. */
 function getGitStatus(root: string): GitEnvelope {
   if (!isGitRepo(root)) {
-    return { ok: true, value: { staged: [], unstaged: [], untracked: [], conflicts: [], ahead: 0, behind: 0, branch: 'unknown' } }
+    return { ok: true, value: { staged: [], unstaged: [], untracked: [], conflicts: [], ignored: [], ahead: 0, behind: 0, branch: 'unknown' } }
   }
   const branchResult = git(['rev-parse', '--abbrev-ref', 'HEAD'], root)
   const branch = branchResult.ok ? branchResult.stdout : 'HEAD'
@@ -100,11 +100,17 @@ function getGitStatus(root: string): GitEnvelope {
     behind = parseInt(parts[1] || '0', 10)
   }
 
-  const statusResult = git(['status', '--porcelain', '-u'], root)
+  // --ignored=matching lists ignored paths one level deep (an ignored directory
+  // is a single "!! dir/" line, never expanded) so the explorer can grey them.
+  let statusResult = git(['status', '--porcelain', '-u', '--ignored=matching'], root)
+  if (!statusResult.ok && /ignored|unknown option|usage/i.test(statusResult.error)) {
+    statusResult = git(['status', '--porcelain', '-u'], root)
+  }
   const staged: GitChange[] = []
   const unstaged: GitChange[] = []
   const untracked: GitChange[] = []
   const conflicts: GitChange[] = []
+  const ignored: GitChange[] = []
 
   if (statusResult.ok && statusResult.stdout) {
     const lines = statusResult.stdout.split('\n')
@@ -116,6 +122,11 @@ function getGitStatus(root: string): GitEnvelope {
       const match = filePath.match(/^(.+?)\s+->\s+(.+)$/)
       const path = match ? match[2].trim() : filePath
       const oldPath = match ? match[1].trim() : undefined
+
+      if (st === '!' && us === '!') {
+        ignored.push({ path, status: '!' })
+        continue
+      }
 
       if (st === '?' && us === '?') {
         untracked.push({ path, status: '?' })
@@ -131,7 +142,7 @@ function getGitStatus(root: string): GitEnvelope {
     }
   }
 
-  return { ok: true, value: { staged, unstaged, untracked, conflicts, ahead, behind, branch } }
+  return { ok: true, value: { staged, unstaged, untracked, conflicts, ignored, ahead, behind, branch } }
 }
 
 // ─── HTTP helpers ───────────────────────────────────────────────────────────
@@ -228,28 +239,35 @@ function normPath(p: string): string {
 }
 
 /**
- * Annotate each file node with its git status letter (M/A/D/R/U/?) and each
- * directory with 'modified' when any descendant has changes — VS Code style.
+ * Annotate each file node with its git status letter (M/A/D/R/U/?) or an
+ * ignored marker ('!'), and each directory with 'M' when any descendant has
+ * changes, '!' when it is itself excluded, otherwise undefined — VS Code style.
  * @param node - the tree node to annotate.
- * @param status - the repository git status (staged + unstaged + untracked).
+ * @param status - the repository git status (staged + unstaged + untracked + ignored).
  * @returns whether this node (or any descendant) has a change.
  */
 function annotateGitStatus(node: FileTreeNode, status: GitStatusData): boolean {
+  // Git may report a directory as "dir/" while tree nodes never carry the
+  // trailing slash, so strip it before matching.
+  const norm = (p: string) => normPath(p).replace(/\/+$/, '')
   const map = new Map<string, string>()
   for (const c of [...status.staged, ...status.unstaged, ...status.untracked]) {
-    if (!map.has(normPath(c.path))) map.set(normPath(c.path), c.status)
+    if (!map.has(norm(c.path))) map.set(norm(c.path), c.status)
   }
+  const ignoredSet = new Set(status.ignored.map((c) => norm(c.path)))
   const walk = (n: FileTreeNode): boolean => {
-    const key = normPath(n.path)
+    const key = norm(n.path)
     if (n.type === 'file') {
-      n.gitStatus = map.get(key)
-      return n.gitStatus !== undefined
+      n.gitStatus = map.get(key) ?? (ignoredSet.has(key) ? '!' : undefined)
+      return n.gitStatus !== undefined && n.gitStatus !== '!'
     }
     let hasChanges = false
     for (const child of n.children ?? []) {
       if (walk(child)) hasChanges = true
     }
-    n.gitStatus = hasChanges ? 'M' : undefined
+    // A change anywhere beats an "ignored" marker; an ignored directory with
+    // no changes shows grey ('!') so excluded folders read at a glance.
+    n.gitStatus = hasChanges ? 'M' : ignoredSet.has(key) ? '!' : undefined
     return hasChanges
   }
   walk(node)
@@ -894,6 +912,7 @@ export interface GitStatusData {
   unstaged: GitChange[]
   untracked: GitChange[]
   conflicts: GitChange[]
+  ignored: GitChange[]
   ahead: number
   behind: number
   branch: string
