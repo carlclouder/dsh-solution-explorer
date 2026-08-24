@@ -117,7 +117,7 @@ declare global {
 
     __solExpSaveFile?: () => Promise<void>
 
-    __solExpGetEditorState?: () => { editorFile: string | null; editorContent: string | null; editorLoading: boolean; editorError: string | null; editorSaving: boolean; editorUnsupported: boolean }
+    __solExpGetEditorState?: () => { editorFile: string | null; editorContent: string | null; editorLoading: boolean; editorError: string | null; editorSaving: boolean; editorUnsupported: boolean; editorImage: boolean; editorRoot: string }
 
     __solExpEditorListeners?: Set<() => void>
 
@@ -427,6 +427,10 @@ declare global {
 		let _editorSaving = false;
 
 		let _editorUnsupported = false;
+
+		let _editorImage = false;
+
+		let _editorRoot = "";
 
 		const _editorListeners = /* @__PURE__ */ new Set<() => void>();
 
@@ -2923,13 +2927,23 @@ styleObs = new MutationObserver(syncGrid);
 
 					_editorUnsupported = false;
 
+					_editorImage = false;
+
+					_editorRoot = root;
+
 					_notifyEditorListeners();
 
 					try {
 
 						const result = await (await fetch("/solution-explorer/read?root=" + encodeURIComponent(root) + "&file=" + encodeURIComponent(path))).json();
 
-						if (result.ok) if (result.value.supported === false) {
+						if (result.ok) if (result.value.image) {
+
+							_editorImage = true;
+
+							_editorContent = null;
+
+						} else if (result.value.supported === false) {
 
 							_editorUnsupported = true;
 
@@ -3013,7 +3027,11 @@ styleObs = new MutationObserver(syncGrid);
 
 					editorSaving: _editorSaving,
 
-					editorUnsupported: _editorUnsupported
+					editorUnsupported: _editorUnsupported,
+
+					editorImage: _editorImage,
+
+					editorRoot: _editorRoot
 
 				});
 
@@ -3280,6 +3298,16 @@ styleObs = new MutationObserver(syncGrid);
 			const gutterRef = useRef(null);
 
 			const [dirty, setDirty] = useState(false);
+
+			const [zoom, setZoom] = useState(1);
+
+			const zoomRef = useRef(1);
+
+			const previewRef = useRef(null);
+
+			const imgRef = useRef(null);
+
+			const panRef = useRef({ x: 0, y: 0, start: null });
 
 			const diffRightRowRefs = useRef<(HTMLElement | null)[]>([]);
 
@@ -3875,7 +3903,11 @@ const getState = window.__solExpGetEditorState;
 
 				editorSaving: false,
 
-				editorUnsupported: false
+				editorUnsupported: false,
+
+				editorImage: false,
+
+				editorRoot: ""
 
 			};
 
@@ -3888,6 +3920,153 @@ const getState = window.__solExpGetEditorState;
 			const saving = st.editorSaving;
 
 			const unsupported = st.editorUnsupported;
+
+			const image = st.editorImage;
+
+			const editorRoot = st.editorRoot;
+
+			// Ctrl+wheel zooms around the cursor: keep the image point under the
+			// mouse fixed by adjusting the pan offset proportionally.
+			// The image is laid out from the top-left when zoomed (>1).
+			useEffect(() => { zoomRef.current = zoom; }, [zoom]);
+
+			useEffect(() => {
+
+				const el = previewRef.current;
+
+				if (!el) return;
+
+				const onWheel = (e) => {
+
+					if (!e.ctrlKey) return;
+
+					e.preventDefault();
+
+					const oldZoom = zoomRef.current;
+
+					const next = Math.min(10, Math.max(0.5, +(oldZoom * (e.deltaY < 0 ? 1.1 : 0.9)).toFixed(2)));
+
+					if (next === oldZoom) return;
+
+					const rect = el.getBoundingClientRect();
+
+					const mx = e.clientX - rect.left;
+
+					const my = e.clientY - rect.top;
+
+					const ratio = next / oldZoom;
+
+					// Image point under the cursor is (mx - pan) / zoom; keep it
+					// fixed by pan' = mx - (mx - pan) * ratio.
+					const pan = panRef.current;
+
+					pan.x = mx - (mx - pan.x) * ratio;
+
+					pan.y = my - (my - pan.y) * ratio;
+
+					const img = imgRef.current;
+
+					if (img) img.style.transform = `translate(${pan.x}px, ${pan.y}px)`;
+
+					zoomRef.current = next;
+
+					setZoom(next);
+
+				};
+
+				el.addEventListener("wheel", onWheel, { passive: false });
+
+				return () => el.removeEventListener("wheel", onWheel);
+
+			}, [image]);
+
+			// Switching files resets zoom and pan.
+			useEffect(() => {
+
+				const pan = panRef.current;
+
+				pan.x = 0;
+
+				pan.y = 0;
+
+				const img = imgRef.current;
+
+				if (img) img.style.transform = "translate(0px, 0px)";
+
+				setZoom(1);
+
+			}, [file]);
+
+			// Left-drag pans the image viewport (grab tool). preventDefault on
+			// mousedown also stops text selection and the browser's native image
+			// drag, so the image can never be dropped into the chat input.
+			useEffect(() => {
+
+				const el = previewRef.current;
+
+				if (!el) return;
+
+				const img = imgRef.current;
+
+				if (!el || !img) return;
+
+				const onMouseDown = (e) => {
+
+					if (e.button !== 0) return;
+
+					e.preventDefault();
+
+					panRef.current.start = { x: e.clientX, y: e.clientY, panX: panRef.current.x, panY: panRef.current.y };
+
+					el.style.cursor = "grabbing";
+
+				};
+
+				const onMouseMove = (e) => {
+
+					const s = panRef.current.start;
+
+					if (!s) return;
+
+					e.preventDefault();
+
+					const nx = s.panX + (e.clientX - s.x);
+
+					const ny = s.panY + (e.clientY - s.y);
+
+					panRef.current.x = nx;
+
+					panRef.current.y = ny;
+
+					img.style.transform = `translate(${nx}px, ${ny}px)`;
+
+				};
+
+				const onMouseUp = () => {
+
+					panRef.current.start = null;
+
+					el.style.cursor = zoomRef.current > 1 ? "grab" : "default";
+
+				};
+
+				el.addEventListener("mousedown", onMouseDown);
+
+				document.addEventListener("mousemove", onMouseMove);
+
+				document.addEventListener("mouseup", onMouseUp);
+
+				return () => {
+
+					el.removeEventListener("mousedown", onMouseDown);
+
+					document.removeEventListener("mousemove", onMouseMove);
+
+					document.removeEventListener("mouseup", onMouseUp);
+
+				};
+
+			}, [image]);
 
 			const statusText = saving ? t("editor.saving") : dirty ? t("editor.unsaved") : t("editor.saved");
 
@@ -3946,6 +4125,108 @@ const getState = window.__solExpGetEditorState;
 				color: "var(--dsw-color-error)"
 
 			} }, error);
+
+			if (image) return h("div", { style: {
+
+				display: "flex",
+
+				flexDirection: "column",
+
+				height: "100%"
+
+			} }, h("div", { style: {
+
+				display: "flex",
+
+				alignItems: "center",
+
+				justifyContent: "space-between",
+
+				padding: "6px 8px",
+
+				borderBottom: "1px solid var(--dsw-alias-border-l1)"
+
+			} }, h("span", { style: {
+
+				display: "flex",
+
+				alignItems: "center",
+
+				gap: "8px",
+
+				fontSize: "12px"
+
+			} }, h("span", { style: { color: "var(--dsw-alias-label-secondary)" } }, file)), h("span", { style: {
+
+				display: "flex",
+
+				alignItems: "center",
+
+				gap: "4px"
+
+			} }, h("button", { className: "sol-exp-editor-btn", onClick: () => setZoom((z) => Math.max(0.5, +(z * 0.8).toFixed(2))), title: "缩小" }, "−"), h("button", { className: "sol-exp-editor-btn", onClick: () => setZoom((z) => Math.min(10, +(z * 1.25).toFixed(2))), title: "放大" }, "+"), h("button", { className: "sol-exp-editor-btn", onClick: () => setZoom(1), title: "复位 100%" }, "1:1"), h("span", { style: { color: "var(--dsw-alias-label-tertiary)", fontSize: "11px", marginLeft: "4px" } }, Math.round(zoom * 100) + "%"), h("span", { style: { color: statusColor, fontSize: "11px", marginLeft: "8px" } }, statusText))), h("div", { ref: previewRef, style: {
+
+				flex: 1,
+
+				minHeight: 0,
+
+				display: "flex",
+
+				padding: "12px",
+
+				background: "var(--dsw-alias-bg-input)",
+
+				overflow: "hidden",
+
+				cursor: zoom > 1 ? "grab" : "default"
+
+			} }, h("img", {
+
+				ref: imgRef,
+
+				src: "/solution-explorer/raw?root=" + encodeURIComponent(editorRoot) + "&file=" + encodeURIComponent(file),
+
+				alt: file,
+
+				draggable: false,
+
+				onDragStart: (e) => e.preventDefault(),
+
+				onDoubleClick: () => { const pan = panRef.current; pan.x = 0; pan.y = 0; const img = imgRef.current; if (img) img.style.transform = "translate(0px, 0px)"; setZoom(1); },
+
+				style: zoom === 1 ? {
+
+					maxWidth: "100%",
+
+					maxHeight: "100%",
+
+					objectFit: "contain",
+
+					borderRadius: "4px",
+
+					margin: "auto"
+
+				} : {
+
+					width: zoom * 100 + "%",
+
+					height: "auto",
+
+					maxWidth: "none",
+
+					maxHeight: "none",
+
+					flex: "none",
+
+					borderRadius: "4px",
+
+					margin: "0",
+
+					transform: `translate(${panRef.current.x}px, ${panRef.current.y}px)`
+
+				}
+
+			})));
 
 			return h("div", { style: {
 

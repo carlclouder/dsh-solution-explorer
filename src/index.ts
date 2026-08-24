@@ -84,6 +84,18 @@ function isValidRefName(name: string): boolean {
   return name.length > 0 && !/[\s~^:?*[\\]/.test(name) && !name.startsWith('-')
 }
 
+/** Image extensions the editor can preview (served raw via /raw). */
+const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'])
+
+function imageMime(ext: string): string {
+  switch (ext) {
+    case 'jpg': case 'jpeg': return 'image/jpeg'
+    case 'svg': return 'image/svg+xml'
+    case 'ico': return 'image/x-icon'
+    default: return 'image/' + ext
+  }
+}
+
 /** Get the structured git status of a repo. */
 function getGitStatus(root: string): GitEnvelope {
   if (!isGitRepo(root)) {
@@ -340,8 +352,16 @@ export function apply(ctx: Context, config: Config = {}): void {
                 json(res, { ok: false, error: { message: 'path traversal denied' } }); return
               }
               const stat = await fsp.stat(fullPath)
+              // Image files are reported as image so the editor renders a
+              // preview (served raw via /solution-explorer/raw) instead of
+              // rejecting them as binary text.
+              const imageExt = pathModule.extname(fullPath).slice(1).toLowerCase()
+              if (IMAGE_EXT.has(imageExt)) {
+                json(res, { ok: true, value: { content: '', mtime: stat.mtimeMs, size: stat.size, supported: true, image: true, mime: imageMime(imageExt) } })
+                return
+              }
               // Binary detection: a NUL byte in the head chunk marks a file the
-              // text editor cannot display (exe, dll, images, archives, ...).
+              // text editor cannot display (exe, dll, archives, ...).
               const fh = await fsp.open(fullPath, 'r')
               let supported = true
               try {
@@ -357,6 +377,26 @@ export function apply(ctx: Context, config: Config = {}): void {
               }
               const content = await fsp.readFile(fullPath, 'utf-8')
               json(res, { ok: true, value: { content, mtime: stat.mtimeMs, size: stat.size, supported: true } })
+            } catch (err) {
+              json(res, { ok: false, error: { message: err instanceof Error ? err.message : String(err) } })
+            }
+            return
+          }
+          case '/solution-explorer/raw': {
+            // Serve a file's raw bytes (images for the editor preview).
+            const root = query.root || ''
+            const file = query.file || ''
+            if (!root || !file) { json(res, { ok: false, error: { message: 'root and file required' } }); return }
+            try {
+              const resolvedRoot = pathModule.resolve(root)
+              const fullPath = pathModule.resolve(root, file)
+              if (fullPath !== resolvedRoot && !fullPath.startsWith(resolvedRoot + pathModule.sep)) {
+                json(res, { ok: false, error: { message: 'path traversal denied' } }); return
+              }
+              const ext = pathModule.extname(fullPath).slice(1).toLowerCase()
+              const buf = await fsp.readFile(fullPath)
+              res.writeHead(200, { 'content-type': IMAGE_EXT.has(ext) ? imageMime(ext) : 'application/octet-stream' })
+              res.end(buf)
             } catch (err) {
               json(res, { ok: false, error: { message: err instanceof Error ? err.message : String(err) } })
             }
