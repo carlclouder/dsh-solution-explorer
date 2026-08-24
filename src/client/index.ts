@@ -1490,8 +1490,6 @@ async function doStage(files) {
 
 				function buildSCMItem(item, section) {
 
-					const statusChar = item.status;
-
 					const pathJs = item.path.replace(/'/g, "\\'");
 
 					const action = section === "staged" ? `<button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpUnstage(['${pathJs}'])" title="${t("scm.unstage")}">◦</button>` : section === "conflicts" ? `<button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpStage(['${pathJs}'])" title="标记为已解决">✓</button>` : `<button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpStage(['${pathJs}'])" title="${t("scm.stage")}">+</button>
@@ -1513,8 +1511,6 @@ async function doStage(files) {
         <div class="sol-exp-scm-item" title="${t("file.open")}" onclick="${openJs}">
 
           <span class="sol-exp-file-icon">${isDir ? folderIcon(false) : fileIcon(item.path)}</span>
-
-          <span class="sol-exp-scm-status sol-exp-git-${gitStatusClass(statusChar)}">${statusChar}</span>
 
           <span class="sol-exp-scm-path">${escapeHtml(item.path)}</span>
 
