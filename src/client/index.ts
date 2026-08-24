@@ -3446,6 +3446,153 @@ styleObs = new MutationObserver(syncGrid);
 
 			}, [rerender]);
 
+			// Editor-mode hooks (zoom/pan for image preview) must run on every
+			// render even when the diff branch returns early — conditional hooks
+			// broke the view after switching between a file and a diff.
+			const edSt = window.__solExpGetEditorState?.();
+
+			const edImage = edSt?.editorImage ?? false;
+
+			const edFile = edSt?.editorFile ?? null;
+
+			useEffect(() => { zoomRef.current = zoom; }, [zoom]);
+
+			useEffect(() => {
+
+				const el = previewRef.current;
+
+				if (!el) return;
+
+				const onWheel = (e) => {
+
+					if (!e.ctrlKey) return;
+
+					e.preventDefault();
+
+					const oldZoom = zoomRef.current;
+
+					const next = Math.min(10, Math.max(0.5, +(oldZoom * (e.deltaY < 0 ? 1.1 : 0.9)).toFixed(2)));
+
+					if (next === oldZoom) return;
+
+					const rect = el.getBoundingClientRect();
+
+					const mx = e.clientX - rect.left;
+
+					const my = e.clientY - rect.top;
+
+					const ratio = next / oldZoom;
+
+					// Image point under the cursor is (mx - pan) / zoom; keep it
+					// fixed by pan' = mx - (mx - pan) * ratio.
+					const pan = panRef.current;
+
+					pan.x = mx - (mx - pan.x) * ratio;
+
+					pan.y = my - (my - pan.y) * ratio;
+
+					const img = imgRef.current;
+
+					if (img) img.style.transform = `translate(${pan.x}px, ${pan.y}px)`;
+
+					zoomRef.current = next;
+
+					setZoom(next);
+
+				};
+
+				el.addEventListener("wheel", onWheel, { passive: false });
+
+				return () => el.removeEventListener("wheel", onWheel);
+
+			}, [edImage]);
+
+			// Switching files resets zoom and pan.
+			useEffect(() => {
+
+				const pan = panRef.current;
+
+				pan.x = 0;
+
+				pan.y = 0;
+
+				const img = imgRef.current;
+
+				if (img) img.style.transform = "translate(0px, 0px)";
+
+				setZoom(1);
+
+			}, [edFile]);
+
+			// Left-drag pans the image viewport (grab tool). preventDefault on
+			// mousedown also stops text selection and the browser's native image
+			// drag, so the image can never be dropped into the chat input.
+			useEffect(() => {
+
+				const el = previewRef.current;
+
+				const img = imgRef.current;
+
+				if (!el || !img) return;
+
+				const onMouseDown = (e) => {
+
+					if (e.button !== 0) return;
+
+					e.preventDefault();
+
+					panRef.current.start = { x: e.clientX, y: e.clientY, panX: panRef.current.x, panY: panRef.current.y };
+
+					el.style.cursor = "grabbing";
+
+				};
+
+				const onMouseMove = (e) => {
+
+					const s = panRef.current.start;
+
+					if (!s) return;
+
+					e.preventDefault();
+
+					const nx = s.panX + (e.clientX - s.x);
+
+					const ny = s.panY + (e.clientY - s.y);
+
+					panRef.current.x = nx;
+
+					panRef.current.y = ny;
+
+					img.style.transform = `translate(${nx}px, ${ny}px)`;
+
+				};
+
+				const onMouseUp = () => {
+
+					panRef.current.start = null;
+
+					el.style.cursor = zoomRef.current > 1 ? "grab" : "default";
+
+				};
+
+				el.addEventListener("mousedown", onMouseDown);
+
+				document.addEventListener("mousemove", onMouseMove);
+
+				document.addEventListener("mouseup", onMouseUp);
+
+				return () => {
+
+					el.removeEventListener("mousedown", onMouseDown);
+
+					document.removeEventListener("mousemove", onMouseMove);
+
+					document.removeEventListener("mouseup", onMouseUp);
+
+				};
+
+			}, [edImage]);
+
 			useEffect(() => {
 
 				const st = window.__solExpGetEditorState?.();
@@ -3991,149 +4138,6 @@ const getState = window.__solExpGetEditorState;
 			const image = st.editorImage;
 
 			const editorRoot = st.editorRoot;
-
-			// Ctrl+wheel zooms around the cursor: keep the image point under the
-			// mouse fixed by adjusting the pan offset proportionally.
-			// The image is laid out from the top-left when zoomed (>1).
-			useEffect(() => { zoomRef.current = zoom; }, [zoom]);
-
-			useEffect(() => {
-
-				const el = previewRef.current;
-
-				if (!el) return;
-
-				const onWheel = (e) => {
-
-					if (!e.ctrlKey) return;
-
-					e.preventDefault();
-
-					const oldZoom = zoomRef.current;
-
-					const next = Math.min(10, Math.max(0.5, +(oldZoom * (e.deltaY < 0 ? 1.1 : 0.9)).toFixed(2)));
-
-					if (next === oldZoom) return;
-
-					const rect = el.getBoundingClientRect();
-
-					const mx = e.clientX - rect.left;
-
-					const my = e.clientY - rect.top;
-
-					const ratio = next / oldZoom;
-
-					// Image point under the cursor is (mx - pan) / zoom; keep it
-					// fixed by pan' = mx - (mx - pan) * ratio.
-					const pan = panRef.current;
-
-					pan.x = mx - (mx - pan.x) * ratio;
-
-					pan.y = my - (my - pan.y) * ratio;
-
-					const img = imgRef.current;
-
-					if (img) img.style.transform = `translate(${pan.x}px, ${pan.y}px)`;
-
-					zoomRef.current = next;
-
-					setZoom(next);
-
-				};
-
-				el.addEventListener("wheel", onWheel, { passive: false });
-
-				return () => el.removeEventListener("wheel", onWheel);
-
-			}, [image]);
-
-			// Switching files resets zoom and pan.
-			useEffect(() => {
-
-				const pan = panRef.current;
-
-				pan.x = 0;
-
-				pan.y = 0;
-
-				const img = imgRef.current;
-
-				if (img) img.style.transform = "translate(0px, 0px)";
-
-				setZoom(1);
-
-			}, [file]);
-
-			// Left-drag pans the image viewport (grab tool). preventDefault on
-			// mousedown also stops text selection and the browser's native image
-			// drag, so the image can never be dropped into the chat input.
-			useEffect(() => {
-
-				const el = previewRef.current;
-
-				if (!el) return;
-
-				const img = imgRef.current;
-
-				if (!el || !img) return;
-
-				const onMouseDown = (e) => {
-
-					if (e.button !== 0) return;
-
-					e.preventDefault();
-
-					panRef.current.start = { x: e.clientX, y: e.clientY, panX: panRef.current.x, panY: panRef.current.y };
-
-					el.style.cursor = "grabbing";
-
-				};
-
-				const onMouseMove = (e) => {
-
-					const s = panRef.current.start;
-
-					if (!s) return;
-
-					e.preventDefault();
-
-					const nx = s.panX + (e.clientX - s.x);
-
-					const ny = s.panY + (e.clientY - s.y);
-
-					panRef.current.x = nx;
-
-					panRef.current.y = ny;
-
-					img.style.transform = `translate(${nx}px, ${ny}px)`;
-
-				};
-
-				const onMouseUp = () => {
-
-					panRef.current.start = null;
-
-					el.style.cursor = zoomRef.current > 1 ? "grab" : "default";
-
-				};
-
-				el.addEventListener("mousedown", onMouseDown);
-
-				document.addEventListener("mousemove", onMouseMove);
-
-				document.addEventListener("mouseup", onMouseUp);
-
-				return () => {
-
-					el.removeEventListener("mousedown", onMouseDown);
-
-					document.removeEventListener("mousemove", onMouseMove);
-
-					document.removeEventListener("mouseup", onMouseUp);
-
-				};
-
-			}, [image]);
 
 			const statusText = saving ? t("editor.saving") : dirty ? t("editor.unsaved") : t("editor.saved");
 
