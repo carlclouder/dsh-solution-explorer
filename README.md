@@ -73,7 +73,7 @@ dsh plugin --profile web add dsh-solution-explorer
 ### From a GitHub Release (prebuilt tarball)
 
 ```sh
-dsh plugin --profile web add https://github.com/xiaoksio/dsh-solution-explorer/releases/latest/download/dsh-solution-explorer-0.2.0.tgz
+dsh plugin --profile web add https://github.com/xiaoksio/dsh-solution-explorer/releases/latest/download/dsh-solution-explorer-0.2.1.tgz
 ```
 
 After installing, reload the Web UI. The explorer panel appears as its own right

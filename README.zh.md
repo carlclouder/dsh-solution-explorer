@@ -45,7 +45,7 @@ dsh plugin --profile web add dsh-solution-explorer
 ### 从 GitHub Release 安装（预构建 tarball）
 
 ```sh
-dsh plugin --profile web add https://github.com/xiaoksio/dsh-solution-explorer/releases/latest/download/dsh-solution-explorer-0.2.0.tgz
+dsh plugin --profile web add https://github.com/xiaoksio/dsh-solution-explorer/releases/latest/download/dsh-solution-explorer-0.2.1.tgz
 ```
 
 安装后刷新 Web UI。会话打开工作区后，资源管理器面板会作为独立右列出现。
