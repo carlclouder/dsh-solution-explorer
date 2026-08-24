@@ -114,9 +114,12 @@ function getGitStatus(root: string): GitEnvelope {
 
   // --ignored=matching lists ignored paths one level deep (an ignored directory
   // is a single "!! dir/" line, never expanded) so the explorer can grey them.
-  let statusResult = git(['status', '--porcelain', '-u', '--ignored=matching'], root)
+  // core.quotePath=false keeps paths with spaces/UTF-8 unquoted — porcelain
+  // v1 otherwise wraps them in C-style quotes and the parsed path breaks
+  // stage/discard for files like "AGENTS copy.md".
+  let statusResult = git(['-c', 'core.quotePath=false', 'status', '--porcelain', '-u', '--ignored=matching'], root)
   if (!statusResult.ok && /ignored|unknown option|usage/i.test(statusResult.error)) {
-    statusResult = git(['status', '--porcelain', '-u'], root)
+    statusResult = git(['-c', 'core.quotePath=false', 'status', '--porcelain', '-u'], root)
   }
   const staged: GitChange[] = []
   const unstaged: GitChange[] = []
@@ -130,10 +133,10 @@ function getGitStatus(root: string): GitEnvelope {
       if (line.length < 3) continue
       const st = line[0]
       const us = line[1]
-      const filePath = line.substring(3).trim()
+      const filePath = unquoteGitPath(line.substring(3).trim())
       const match = filePath.match(/^(.+?)\s+->\s+(.+)$/)
-      const path = match ? match[2].trim() : filePath
-      const oldPath = match ? match[1].trim() : undefined
+      const path = match ? unquoteGitPath(match[2].trim()) : filePath
+      const oldPath = match ? unquoteGitPath(match[1].trim()) : undefined
 
       if (st === '!' && us === '!') {
         ignored.push({ path, status: '!' })
@@ -251,6 +254,60 @@ function normPath(p: string): string {
 }
 
 /**
+ * Decode a git C-style quoted pathname (porcelain v1 always quotes paths that
+ * contain spaces or other special characters, regardless of core.quotePath).
+ * Non-quoted input is returned unchanged.
+ */
+function unquoteGitPath(s: string): string {
+  if (s.length < 2 || s[0] !== '"' || s[s.length - 1] !== '"') return s
+  const inner = s.slice(1, -1)
+  let out = ''
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i]
+    if (ch !== '\\') { out += ch; continue }
+    const n = inner[i + 1]
+    if (n === undefined) break
+    i++
+    switch (n) {
+      case 'a': out += '\x07'; break
+      case 'b': out += '\b'; break
+      case 't': out += '\t'; break
+      case 'n': out += '\n'; break
+      case 'v': out += '\v'; break
+      case 'f': out += '\f'; break
+      case 'r': out += '\r'; break
+      case '"': out += '"'; break
+      case '\\': out += '\\'; break
+      default:
+        if (n >= '0' && n <= '7') {
+          // A run of octal escapes encodes one UTF-8 sequence (e.g. "\346\265\213");
+          // collect the bytes and decode once.
+          const bytes: number[] = []
+          let oct = n
+          let k = 1
+          while (k < 3 && i + 1 < inner.length && inner[i + 1] >= '0' && inner[i + 1] <= '7') {
+            oct += inner[i + 1]; i++; k++
+          }
+          bytes.push(parseInt(oct, 8))
+          while (bytes.length < 16 && inner[i + 1] === '\\' && inner[i + 2] >= '0' && inner[i + 2] <= '7') {
+            let oct2 = inner[i + 2]
+            let k2 = 1
+            i += 2
+            while (k2 < 3 && i + 1 < inner.length && inner[i + 1] >= '0' && inner[i + 1] <= '7') {
+              oct2 += inner[i + 1]; i++; k2++
+            }
+            bytes.push(parseInt(oct2, 8))
+          }
+          out += Buffer.from(bytes).toString('utf-8')
+        } else {
+          out += n
+        }
+    }
+  }
+  return out
+}
+
+/**
  * Annotate each file node with its git status letter (M/A/D/R/U/?) or an
  * ignored marker ('!'), and each directory with 'M' when any descendant has
  * changes, '!' when it is itself excluded, otherwise undefined — VS Code style.
@@ -265,6 +322,11 @@ function annotateGitStatus(node: FileTreeNode, status: GitStatusData): boolean {
   const map = new Map<string, string>()
   for (const c of [...status.staged, ...status.unstaged, ...status.untracked]) {
     if (!map.has(norm(c.path))) map.set(norm(c.path), c.status)
+  }
+  // Conflicts (UU/AA/DD/...) collapse to a single 'U' marker, matching the
+  // SCM badge, so the tree and the change panel agree on conflicted files.
+  for (const c of status.conflicts) {
+    if (!map.has(norm(c.path))) map.set(norm(c.path), 'U')
   }
   const ignoredSet = new Set(status.ignored.map((c) => norm(c.path)))
   const walk = (n: FileTreeNode): boolean => {
@@ -451,6 +513,13 @@ export function apply(ctx: Context, config: Config = {}): void {
             args.push('--', file)
             const result = git(args, root)
             if (!result.ok) { json(res, { ok: false, error: { message: result.error } }); return }
+            // Binary diffs ("Binary files a/x and b/x differ") cannot be shown in
+            // the text diff view — report unsupported so the UI can say so
+            // instead of rendering garbled bytes (consistent with the editor).
+            if (/^Binary files .* differ$/m.test(result.stdout)) {
+              json(res, { ok: true, value: { unsupported: true } })
+              return
+            }
             // Full-file contents for the side-by-side view: old = HEAD, new = index (staged) or working tree.
             const headShow = git(['show', 'HEAD:' + file], root)
             const oldContent = headShow.ok ? headShow.stdout : ''
@@ -562,7 +631,9 @@ export function apply(ctx: Context, config: Config = {}): void {
             const lines = result.stdout.split('\n')
             const head = lines[0] || ''
             const parts = head.split('|')
-            const files = lines.slice(1).filter(Boolean)
+            // --name-only quotes paths with spaces ("AGENTS copy.md") — decode
+            // them so the list matches the tree/SCM path display.
+            const files = lines.slice(1).filter(Boolean).map((f) => unquoteGitPath(f.trim()))
             json(res, {
               ok: true,
               value: {
@@ -606,8 +677,30 @@ export function apply(ctx: Context, config: Config = {}): void {
           }
           case '/solution-explorer/git-discard': {
             if (!root || files.length === 0) { json(res, { ok: false, error: { message: 'root and files required' } }); return }
-            const result = git(['checkout', '--', ...files], root)
-            json(res, result.ok ? { ok: true, value: true } : { ok: false, error: { message: result.error } })
+            // Untracked files cannot be reverted with checkout — remove them
+            // (VS Code discard behaviour; the UI confirms destructive actions).
+            const status = getGitStatus(root)
+            const untrackedPaths = new Set(status.ok ? status.value.untracked.map((c) => normPath(c.path)) : [])
+            const untracked = files.filter((f) => untrackedPaths.has(normPath(f)))
+            const tracked = files.filter((f) => !untrackedPaths.has(normPath(f)))
+            try {
+              for (const f of untracked) {
+                const resolvedRoot = pathModule.resolve(root)
+                const fullPath = pathModule.resolve(root, f)
+                if (fullPath !== resolvedRoot && !fullPath.startsWith(resolvedRoot + pathModule.sep)) {
+                  json(res, { ok: false, error: { message: 'path traversal denied' } }); return
+                }
+                await fsp.rm(fullPath, { recursive: true, force: true })
+              }
+            } catch (err) {
+              json(res, { ok: false, error: { message: err instanceof Error ? err.message : String(err) } })
+              return
+            }
+            if (tracked.length > 0) {
+              const result = git(['checkout', '--', ...tracked], root)
+              if (!result.ok) { json(res, { ok: false, error: { message: result.error } }); return }
+            }
+            json(res, { ok: true, value: true })
             return
           }
           case '/solution-explorer/git-commit': {
