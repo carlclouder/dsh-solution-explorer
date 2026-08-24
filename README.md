@@ -16,7 +16,8 @@ layout.
 ## Features
 
 - **File Explorer** — browse the current session workspace as a directory tree
-  with expand/collapse, VS Code-style git status markers (M/A/D/R/?), names
+  with expand/collapse, VS Code-style file-type icons (TS/JS/Vue/JSON/image/
+  archive/script and 30+ more extensions), git status markers (M/A/D/R/?), names
   color-coded by status (green untracked / yellow modified / grey ignored),
   `.gitignore`-excluded files and folders shown grey, and directory "modified"
   indicators.
