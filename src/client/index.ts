@@ -4218,7 +4218,11 @@ styleObs = new MutationObserver(syncGrid);
 
 					if (el) {
 
-						el.focus();
+						// The row content span is inside the single editable column
+						// host; focus the host itself so typing resumes reliably.
+						const host = (el.closest('[contenteditable="true"]') || el) as HTMLElement;
+
+						host.focus();
 
 						if (typeof setCaretAt === "function" && off >= 0) setCaretAt(el, off);
 
@@ -4587,42 +4591,122 @@ setDiffDirty(false);
 
 				};
 
-				const onRightEnter = (e, i) => {
-
-					e.preventDefault();
-
-					const el = e.target;
-
+				// Right-pane editing runs on ONE contentEditable host (the whole
+				// column) so text selection can span multiple rows while editing
+				// stays row-aware. Caret→row resolution walks the DOM up to the
+				// row wrapper (data-row-idx) and measures the caret inside that
+				// row's content span.
+				const rowAtNode = (node) => {
+					let n = node;
+					while (n && n.nodeType === 1 && n.getAttribute?.("data-row-idx") == null) n = n.parentNode;
+					return n && n.getAttribute ? Number(n.getAttribute("data-row-idx")) : -1;
+				};
+				const rowInfoAt = (node, offset) => {
+					const idx = rowAtNode(node);
+					if (idx < 0) return { idx, offset: 0 };
+					const el = diffRightRowRefs.current[idx];
+					if (!el) return { idx, offset: 0 };
+					if (!el.contains(node)) return { idx, offset: 0 };
+					const pre = document.createRange();
+					pre.selectNodeContents(el);
+					try { pre.setEnd(node, offset); } catch { return { idx, offset: 0 }; }
+					return { idx, offset: pre.toString().length };
+				};
+				const onRightEnterAtCaret = () => {
+					const sel = window.getSelection();
+					if (!sel || sel.rangeCount === 0) return;
+					const info = rowInfoAt(sel.anchorNode, sel.anchorOffset);
+					const i = info.idx;
+					if (i < 0 || i >= rows.length) return;
+					const el = diffRightRowRefs.current[i];
+					if (!el) return;
 					const text = el.textContent || "";
-
-					let before = text, after = "";
-
-					const caret = caretOffsetIn(el);
-
-					before = text.slice(0, caret);
-
-					after = text.slice(caret);
-
+					const before = text.slice(0, info.offset), after = text.slice(info.offset);
 					setDiffRows((prev) => {
-
 						if (!prev) return prev;
-
 						const nr = [...prev.rows];
-
 						nr[i] = { ...nr[i], new: before };
-
 						nr.splice(i + 1, 0, { id: rowIdRef.current++, old: "", new: after, oldNum: null, newNum: null, inNew: true, oldDel: false, newAdd: true });
-
 						return { ...prev, rows: nr };
-
 					});
-
 					focusDiffRowRef.current = i + 1;
-
 					focusDiffOffsetRef.current = 0;
-
 					setDiffDirty(true);
-
+				};
+				// Delete a non-collapsed (possibly multi-row) selection: collapse
+				// the affected rows into one so the row model stays in sync with
+				// what gets saved.
+				const deleteRightSelection = () => {
+					const sel = window.getSelection();
+					if (!sel || sel.rangeCount === 0) return;
+					const range = sel.getRangeAt(0);
+					let a = rowInfoAt(range.startContainer, range.startOffset);
+					let b = rowInfoAt(range.endContainer, range.endOffset);
+					if (a.idx < 0 || b.idx < 0) return;
+					if (a.idx > b.idx || (a.idx === b.idx && a.offset > b.offset)) { const t = a; a = b; b = t; }
+					const elA = diffRightRowRefs.current[a.idx];
+					const elB = diffRightRowRefs.current[b.idx];
+					const textA = elA ? elA.textContent || "" : rows[a.idx]?.new || "";
+					const textB = elB ? elB.textContent || "" : rows[b.idx]?.new || "";
+					const merged = textA.slice(0, a.offset) + textB.slice(b.offset);
+					setDiffRows((prev) => {
+						if (!prev) return prev;
+						const nr = [...prev.rows];
+						nr[a.idx] = { ...nr[a.idx], new: merged, newAdd: true };
+						nr.splice(a.idx + 1, b.idx - a.idx);
+						return { ...prev, rows: nr };
+					});
+					setDiffDirty(true);
+					focusDiffRowRef.current = a.idx;
+					focusDiffOffsetRef.current = a.offset;
+				};
+				const rightColKeyDown = (e) => {
+					if (!editable) return;
+					if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); saveNew(); return; }
+					if (e.key === "Enter") { e.preventDefault(); onRightEnterAtCaret(); return; }
+					if (e.key === "Backspace" || e.key === "Delete") {
+						const sel = window.getSelection();
+						if (sel && sel.rangeCount > 0 && !sel.getRangeAt(0).collapsed) { e.preventDefault(); deleteRightSelection(); return; }
+						const info = rowInfoAt(sel?.anchorNode, sel?.anchorOffset ?? 0);
+						const i = info.idx;
+						if (i < 0 || i >= rows.length) return;
+						const el = diffRightRowRefs.current[i];
+						if (!el) return;
+						const text = el.textContent || "";
+						const caret = info.offset;
+						if (caret === 0 && e.key === "Backspace" && i > 0 && rows[i - 1].inNew !== false) {
+							e.preventDefault();
+							setDiffRows((prev) => {
+								const nr = [...prev.rows];
+								nr[i - 1] = { ...nr[i - 1], new: (nr[i - 1].new || "") + (nr[i].new || "") };
+								nr.splice(i, 1);
+								return { ...prev, rows: nr };
+							});
+							setDiffDirty(true);
+							focusDiffRowRef.current = i - 1;
+							focusDiffOffsetRef.current = (rows[i - 1].new || "").length;
+							return;
+						}
+						if (caret === text.length && e.key === "Delete" && i < rows.length - 1 && rows[i + 1].inNew !== false) {
+							e.preventDefault();
+							setDiffRows((prev) => {
+								const nr = [...prev.rows];
+								nr[i] = { ...nr[i], new: (nr[i].new || "") + (nr[i + 1].new || "") };
+								nr.splice(i + 1, 1);
+								return { ...prev, rows: nr };
+							});
+							setDiffDirty(true);
+							focusDiffRowRef.current = i;
+							focusDiffOffsetRef.current = (rows[i].new || "").length;
+							return;
+						}
+						// Row start/end with nothing editable to merge into: swallow
+						// the key so the browser never deletes across rows. Mid-row:
+						// let the single editing host delete one character.
+						if (caret === 0 || caret === text.length) { e.preventDefault(); return; }
+						e.preventDefault();
+						document.execCommand(e.key === "Backspace" ? "delete" : "forwardDelete");
+					}
 				};
 
 				const saveNew = async () => {
@@ -4789,9 +4873,10 @@ setDiffDirty(false);
 
 					minWidth: 0,
 
-					overflowX: "auto"
+					overflowX: "auto",
+					outline: "none"
 
-				} }, rows.map((r, i) => h("div", { key: "n" + r.id, style: {
+				}, contentEditable: editable, suppressContentEditableWarning: true, spellCheck: false, onInput: () => setDiffDirty(true), onKeyDown: rightColKeyDown, onPaste: (e) => { e.preventDefault(); const t = e.clipboardData.getData("text/plain"); document.execCommand("insertText", false, t); } }, rows.map((r, i) => h("div", { key: "n" + r.id, "data-row-idx": String(i), style: {
 
 					whiteSpace: "pre",
 
@@ -4801,121 +4886,17 @@ setDiffDirty(false);
 
 					color: r.newAdd ? "#4ec9b0" : "var(--dsw-alias-label-primary)"
 
-				} }, h("span", { style: numStyle }, r.newNum === null ? "" : String(r.newNum)), r.inNew === false ? h("span", { style: {
+				} }, h("span", { style: numStyle, contentEditable: false }, r.newNum === null ? "" : String(r.newNum)), r.inNew === false ? h("span", { style: {
 
 					color: "var(--dsw-alias-label-tertiary)",
 
 					opacity: .4
 
-				} }, NBSP) : h("span", {
+				}, contentEditable: false }, NBSP) : h("span", {
 
-					contentEditable: editable,
+					style: { minWidth: "2px" },
 
-					suppressContentEditableWarning: true,
-
-					style: {
-
-						flex: 1,
-
-						userSelect: "text",
-
-						WebkitUserSelect: "text",
-
-						cursor: "text",
-
-						outline: "none",
-
-						minWidth: "2px"
-
-					},
-
-					spellCheck: false,
-
-					onInput: () => setDiffDirty(true),
-
-					ref: (el2) => { diffRightRowRefs.current[i] = el2; },
-
-					onKeyDown: (e) => {
-
-						if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); saveNew(); return }
-
-						if (e.key === "Enter") onRightEnter(e, i)
-
-						else if (e.key === "Backspace" || e.key === "Delete") {
-
-							e.preventDefault()
-
-							const sel = window.getSelection()
-
-							if (sel && sel.rangeCount > 0 && !sel.getRangeAt(0).collapsed) {
-
-								sel.getRangeAt(0).deleteContents()
-
-								return
-
-							}
-
-							const el = e.target
-
-							const text = el.textContent || ""
-
-							const caret = caretOffsetIn(el)
-
-							if (caret === 0 && e.key === "Backspace" && i > 0 && rows[i - 1].inNew !== false) {
-
-								setDiffRows((prev) => {
-
-									const nr = [...prev.rows]
-
-									nr[i - 1] = { ...nr[i - 1], new: (nr[i - 1].new || "") + (nr[i].new || "") }
-
-									nr.splice(i, 1)
-
-									return { ...prev, rows: nr }
-
-								})
-
-								setDiffDirty(true)
-
-								focusDiffRowRef.current = i - 1
-
-								focusDiffOffsetRef.current = (rows[i - 1].new || "").length
-
-								return
-
-							}
-
-							if (caret === text.length && e.key === "Delete" && i < rows.length - 1 && rows[i + 1].inNew !== false) {
-
-								setDiffRows((prev) => {
-
-									const nr = [...prev.rows]
-
-									nr[i] = { ...nr[i], new: (nr[i].new || "") + (nr[i + 1].new || "") }
-
-									nr.splice(i + 1, 1)
-
-									return { ...prev, rows: nr }
-
-								})
-
-								setDiffDirty(true)
-
-								focusDiffRowRef.current = i
-
-								focusDiffOffsetRef.current = (rows[i].new || "").length
-
-								return
-
-							}
-
-							document.execCommand(e.key === "Backspace" ? "delete" : "forwardDelete")
-
-						}
-
-					},
-
-					onPaste: (e) => { e.preventDefault(); const text = e.clipboardData.getData("text/plain"); document.execCommand("insertText", false, text); }
+					ref: (el2) => { diffRightRowRefs.current[i] = el2; }
 
 				}, h("span", { dangerouslySetInnerHTML: { __html: rightHtml(i) } })))))));
 
