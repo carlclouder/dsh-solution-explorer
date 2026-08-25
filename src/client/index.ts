@@ -158,6 +158,9 @@ declare global {
     __solExpPanelContextMenu?: (evt: MouseEvent) => void
 
     __solExpContextMenu?: (target: string, x: number, y: number, isDir?: boolean) => void
+    __solExpRename?: (path: string) => void
+    __solExpRenameCommit?: (name: string) => void
+    __solExpRenameCancel?: () => void
 
     __solExpDeleteFile?: (target: string) => Promise<void>
 
@@ -299,11 +302,13 @@ declare global {
 
 .sol-exp-path::before { content:'\\2014 '; }
 
-.sol-exp-content::-webkit-scrollbar { width:6px; }
+.sol-exp-content, .sol-exp-scm-top, #sol-exp-commits-list, .sol-exp-commit-files { scrollbar-width:thin; }
 
-.sol-exp-content::-webkit-scrollbar-track { background:transparent; }
+.sol-exp-content::-webkit-scrollbar, .sol-exp-scm-top::-webkit-scrollbar, #sol-exp-commits-list::-webkit-scrollbar, .sol-exp-commit-files::-webkit-scrollbar { width:6px; height:6px; }
 
-.sol-exp-content::-webkit-scrollbar-thumb { background:var(--dsw-alias-scrollbar-bg-l2,rgba(255,255,255,0.1)); border-radius:3px; }
+.sol-exp-content::-webkit-scrollbar-track, .sol-exp-scm-top::-webkit-scrollbar-track, #sol-exp-commits-list::-webkit-scrollbar-track, .sol-exp-commit-files::-webkit-scrollbar-track { background:transparent; }
+
+.sol-exp-content::-webkit-scrollbar-thumb, .sol-exp-scm-top::-webkit-scrollbar-thumb, #sol-exp-commits-list::-webkit-scrollbar-thumb, .sol-exp-commit-files::-webkit-scrollbar-thumb { background:var(--dsw-alias-scrollbar-bg-l2,rgba(255,255,255,0.1)); border-radius:3px; }
 
 .sol-exp-body { flex:1; min-height:0; display:flex; }
 
@@ -398,9 +403,11 @@ declare global {
 .sol-exp-commit-detail-btn { background:transparent; border:1px solid var(--dsw-alias-border-l2,#333); color:var(--dsw-alias-label-secondary,#969696); border-radius:4px; padding:2px 8px; font-size:11px; cursor:pointer; }
 .sol-exp-commit-detail-btn:hover { background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.1)); color:var(--dsw-alias-label-primary,#d4d4d4); }
 .sol-exp-scm-status { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:4px; font-size:11px; font-weight:700; background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.06)); }
+.sol-exp-scm-host { flex:1; min-height:0; display:flex; flex-direction:column; }
 .sol-exp-scm-split { flex:1; min-height:0; height:100%; display:flex; flex-direction:column; }
 .sol-exp-scm-top { flex:1 1 55%; min-height:0; overflow-y:auto; }
-.sol-exp-scm-divider { flex:none; height:4px; cursor:row-resize; background:var(--dsw-alias-border-l1,#333); }
+.sol-exp-scm-divider { position:relative; flex:none; height:4px; cursor:row-resize; background:var(--dsw-alias-border-l1,#333); z-index:3; }
+.sol-exp-scm-divider::before { content:''; position:absolute; left:0; right:0; top:-6px; bottom:-6px; }
 .sol-exp-scm-divider:hover { background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.12)); }
 .sol-exp-scm-bottom { flex:1 1 45%; min-height:0; display:flex; flex-direction:column; }
 .sol-exp-scm-section[data-section="repository"] { flex:1; min-height:0; display:flex; flex-direction:column; }
@@ -410,6 +417,7 @@ declare global {
 .sol-exp-repo-icon { flex:none; color:var(--dsw-alias-state-business-primary,#58a6ff); }
 .sol-exp-repo-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--dsw-alias-label-primary,#d4d4d4); }
 .sol-exp-repo-branch { flex:none; font-size:11px; color:var(--dsw-alias-label-tertiary,#6e6e6e); }
+.sol-exp-rename-input { flex:1; min-width:0; box-sizing:border-box; border:1px solid var(--dsw-alias-brand-primary,#4a9eff); border-radius:4px; background:var(--dsw-alias-bg-input,#1e1e1e); color:var(--dsw-alias-label-primary,#d4d4d4); font:inherit; font-size:13px; line-height:20px; padding:0 4px; outline:none; }
 
 /* Settings page ("资源管理器" section) — flat grouped cards matching the
    native notification settings page style. */
@@ -684,6 +692,8 @@ function _notifyDiffListeners() {
 
 				let selectedPaths = /* @__PURE__ */ new Set<string>();
 
+				let renamingPath = "";
+
 				let selectionAnchor = null;
 
 				let clipboard = null;
@@ -693,6 +703,8 @@ function _notifyDiffListeners() {
 				let dropTargetPath = null;
 
 				let gitStatus = null;
+				let gitStatusChanged = true;
+				let lastHeadHash = "";
 				let repos = [];
 				let activeRepo = "";
 				const gitRoot = () => activeRepo || root;
@@ -725,6 +737,12 @@ function _notifyDiffListeners() {
 
 				function render() {
 
+					// During a divider drag the SCM DOM must stay untouched: any
+					// rebuild here would reset flex-basis from the dragged pixel
+					// value back to the percentage default and make the divider
+					// jump (visible on the first drag after startup).
+					if (scmDragging) return;
+
 					if (!activeEl) return;
 
 					setLanguage(document.documentElement.lang?.startsWith("zh") ? "zh" : "en");
@@ -739,11 +757,19 @@ function _notifyDiffListeners() {
 
 					const seq = ++loadSeq;
 
-					loading = true;
+					// First load (no tree yet) shows the loading state; later
+					// loads reconcile in place so nothing flashes.
+					const hadTree = !!treeState;
 
-					error = null;
+					if (!hadTree) {
 
-					render();
+						loading = true;
+
+						error = null;
+
+						render();
+
+					}
 
 					try {
 
@@ -751,21 +777,70 @@ function _notifyDiffListeners() {
 
 						if (seq !== loadSeq || root === "") return;
 
-						if (result.ok) treeState = result.value;
+						if (result.ok) {
 
-						else error = result.error?.message || "Failed to load tree";
+							treeState = result.value;
+
+							if (hadTree) {
+
+								const container = activeEl ? activeEl.querySelector(".sol-exp-tree") : null;
+
+								if (container) reconcileTree(container, treeState.children || [], 0);
+
+								else render();
+
+							} else {
+
+								render();
+
+							}
+
+						} else if (!hadTree) {
+
+							error = result.error?.message || "Failed to load tree";
+
+						}
 
 					} catch (err) {
 
 						if (seq !== loadSeq) return;
 
-						error = err instanceof Error ? err.message : String(err);
+						if (!hadTree) error = err instanceof Error ? err.message : String(err);
 
 					}
 
 					loading = false;
 
-					render();
+					if (!hadTree) render();
+
+				}
+
+				// Silent auto-refresh: pull a new tree and reconcile it into the
+				// existing DOM (no loading state, no flash); failures keep the
+				// current tree untouched.
+				async function refreshTreeSilent() {
+
+					if (!root || !treeState) return;
+
+					const seq = ++loadSeq;
+
+					try {
+
+						const result = await (await fetch(`/solution-explorer/tree?root=${encodeURIComponent(root)}`)).json();
+
+						if (seq !== loadSeq || root === "") return;
+
+						if (result.ok && result.value) {
+
+							treeState = result.value;
+
+							const container = activeEl ? activeEl.querySelector(".sol-exp-tree") : null;
+
+							if (container) reconcileTree(container, treeState.children || [], 0);
+
+						}
+
+					} catch { /* silent — keep the current tree */ }
 
 				}
 
@@ -787,12 +862,21 @@ function _notifyDiffListeners() {
 					activeRepo = path;
 					loadGitStatus();
 					loadRecentCommits();
+					// Update the repository selection highlight and the change
+					// list in place (loadGitStatus no longer re-renders).
+					if (activeEl && currentTab === "scm") {
+						activeEl.querySelectorAll(".sol-exp-repo-item").forEach((el) => {
+							el.classList.toggle("active", el.getAttribute("data-repo-path") === path);
+						});
+						const scmTop = activeEl.querySelector(".sol-exp-scm-top");
+						if (scmTop) scmTop.innerHTML = buildSCMTopHTML();
+					}
 				};
 async function loadGitStatus() {
 
 					if (!root) return;
 
-					render();
+					const hadStatus = !!gitStatus;
 
 					try {
 
@@ -800,17 +884,78 @@ async function loadGitStatus() {
 
 						if (result.ok) {
 
+							const prev = gitStatus;
+
 							gitStatus = result.value;
 
 							gitChangesCount = (result.value.staged?.length || 0) + (result.value.unstaged?.length || 0) + (result.value.untracked?.length || 0);
+
+							// Remember whether the UI-relevant status changed. Only
+							// the branch and the change lists drive the SCM view;
+							// ignored/ahead/behind may jitter between polls and
+							// must not force a rebuild (which would interrupt a
+							// divider drag).
+							gitStatusChanged = prev === null
+								|| JSON.stringify([prev.branch, prev.staged, prev.unstaged, prev.untracked, prev.conflicts])
+								!== JSON.stringify([gitStatus.branch, gitStatus.staged, gitStatus.unstaged, gitStatus.untracked, gitStatus.conflicts]);
+
+							// Detect a HEAD change (external commit or checkout) and reload the commit
+							// history so a command-line git commit shows up without a manual refresh.
+							const head = typeof gitStatus.head === "string" ? gitStatus.head : "";
+							if (head && head !== lastHeadHash) {
+								lastHeadHash = head;
+								if (hadStatus && currentTab === "scm") loadRecentCommits();
+							}
 
 						}
 
 					} catch {}
 
-					render();
+					// First load renders the panel; later loads update only
+					// the SCM region and the badge, leaving the tree alone.
+					if (!hadStatus) render();
 
-					if (gitStatus && gitStatus.branch !== "unknown") loadRecentCommits();
+					else if (gitStatusChanged && activeEl) {
+
+						const scmHost = activeEl.querySelector("[data-sol-exp-scm-host]");
+
+						if (scmHost && currentTab === "scm") {
+
+							// Update only the change-list half; the repository
+							// half (commits list, scroll state) stays untouched.
+							// Compare before writing so an unchanged region is
+							// never repainted, even if the change flag jitters.
+							const scmTop = scmHost.querySelector(".sol-exp-scm-top");
+
+							if (scmTop) {
+
+								const html = buildSCMTopHTML();
+
+								if (scmTop.innerHTML !== html) {
+
+									console.log("[sol-exp] rebuild scm top", Date.now());
+
+									scmTop.innerHTML = html;
+
+								}
+
+							}
+
+						}
+
+						const badge = activeEl.querySelector(".sol-exp-activity-badge");
+
+						if (badge) {
+
+							if (gitChangesCount > 0) badge.textContent = String(gitChangesCount);
+
+							else badge.remove();
+
+						}
+
+					}
+
+					if (!hadStatus && gitStatus && gitStatus.branch !== "unknown") loadRecentCommits();
 
 				}
 
@@ -907,7 +1052,7 @@ window.__solExpCommitDetail = async (hash) => {
       <div class="sol-exp-commit-detail-row"><span class="sol-exp-commit-detail-label">date</span><span class="sol-exp-commit-detail-val">${new Date(c.timestamp).toLocaleString()}</span></div>
       <div class="sol-exp-commit-detail-row"><span class="sol-exp-commit-detail-label">message</span><span class="sol-exp-commit-detail-val">${escapeHtml(c.message)}</span></div>
       <div class="sol-exp-commit-detail-row"><span class="sol-exp-commit-detail-label">parents</span><span class="sol-exp-commit-detail-val">${parentsHtml}</span></div>
-      <div style="padding-top:4px"><span class="sol-exp-commit-detail-label" style="display:inline-block;padding-bottom:2px">files</span><div style="max-height:140px;overflow-y:auto">${filesHtml}</div></div>
+      <div style="padding-top:4px"><span class="sol-exp-commit-detail-label" style="display:inline-block;padding-bottom:2px">files</span><div class="sol-exp-commit-files" style="max-height:140px;overflow-y:auto">${filesHtml}</div></div>
       <div style="padding-top:6px"><button class="sol-exp-commit-detail-btn" onclick="window.__solExpCommitCheckout('${hash}')">Checkout</button></div>`;
   } catch (err) {
     detailEl.innerHTML = `<div style="color:var(--dsw-color-error,#f48771)">${escapeHtml(err instanceof Error ? err.message : String(err))}</div>`;
@@ -1052,6 +1197,7 @@ window.__solExpBranchPublish = async (name) => {
   if (!result.ok) alert(result.error?.message || "发布失败"); else await loadBranches();
 };
 async function loadRecentCommits() {
+					console.log("[sol-exp] loadRecentCommits", Date.now());
 					if (!root || !gitStatus || gitStatus.branch === "unknown") return;
 					commitsPage = 0;
 					commitsAllLoaded = false;
@@ -1064,6 +1210,7 @@ async function loadRecentCommits() {
 					try {
 						const url = `/solution-explorer/git-log?root=${encodeURIComponent(gitRoot())}&count=50&skip=${commitsPage * 50}`;
 						const result = await (await fetch(url)).json();
+						console.log("[sol-exp] loadCommitsPage ok", result.ok, result.value ? result.value.length : -1, "el", !!document.getElementById("sol-exp-commits-list"));
 						if (result.ok && result.value) {
 							const commitsList = document.getElementById("sol-exp-commits-list");
 							if (commitsList) {
@@ -1210,6 +1357,10 @@ async function doStage(files) {
 
 					render();
 
+					console.log("[sol-exp] doCommit -> loadRecentCommits", Date.now());
+
+					await loadRecentCommits();
+
 				}
 
 				async function searchFiles(query) {
@@ -1282,7 +1433,7 @@ async function doStage(files) {
 
 					let contentHTML = "";
 
-					if (currentTab === "scm") contentHTML = buildSCMContent();
+					if (currentTab === "scm") contentHTML = '<div class="sol-exp-scm-host" data-sol-exp-scm-host>' + buildSCMContent() + '</div>';
 
 					else if (currentTab === "search") contentHTML = buildSearchContent();
 
@@ -1400,6 +1551,96 @@ async function doStage(files) {
 
 				}
 
+				// The change-list half of the SCM panel (conflicts + commit box +
+				// changes + staged). Extracted so a git-status refresh can
+				// update ONLY this region, leaving the repository/commits half
+				// (and its scroll/loading state) untouched.
+				function buildSCMTopHTML() {
+
+					const status = gitStatus;
+
+					const staged = status?.staged || [];
+
+					const unstaged = status?.unstaged || [];
+
+					const untracked = status?.untracked || [];
+
+					const allChanges = [...unstaged, ...untracked];
+
+					const conflicts = status?.conflicts || [];
+
+					let topHTML = "";
+
+					if (conflicts.length > 0) topHTML += `
+
+        <div class="sol-exp-scm-section" data-section="conflicts">
+
+          <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('conflicts')"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4"/></svg>${t("scm.merge.changes")}<span class="sol-exp-scm-header-actions"></span><span class="sol-exp-scm-section-count">${conflicts.length}</span></div>
+
+          ${conflicts.map((item) => buildSCMItem(item, "conflicts")).join("")}
+
+        </div>
+
+      `;
+
+					topHTML += `
+
+        <div class="sol-exp-commit-box">
+
+          <textarea class="sol-exp-commit-input" placeholder="${t("scm.commit.placeholder")}${status?.branch && status?.branch !== "unknown" ? " (" + status.branch + ")" : ""}" oninput="window.__solExpCommitMsg(this.value)">${escapeHtml(commitMessage)}</textarea>
+
+          <div class="sol-exp-commit-row">
+
+            <button class="sol-exp-commit-btn" onclick="window.__solExpCommit()" ${committing || !commitMessage.trim() ? "disabled" : ""}>${committing ? t("scm.committing") : t("scm.commit.button")}</button>
+
+          </div>
+
+        </div>
+
+      `;
+
+					topHTML += `
+
+        <div class="sol-exp-scm-section" data-section="changes">
+
+          <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('changes')"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4"/></svg>${t("scm.changes")}<span class="sol-exp-scm-header-actions">
+
+            <button class="sol-exp-hdr-btn" title="${t("scm.refresh")}" onclick="event.stopPropagation();window.__solExpRefreshSCM()"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2 8a6 6 0 0 1 10.47-4.02L14 5.5V2h1v5h-5V6h2.33A4.5 4.5 0 0 0 3.5 8H2zm12 0a6 6 0 0 1-10.47 4.02L2 10.5V14H1V9h5v1H3.67A4.5 4.5 0 0 0 12.5 8H14z"/></svg></button>
+
+            ${allChanges.length > 0 ? `<button class="sol-exp-hdr-btn" title="${t("scm.stageAll")}" onclick="event.stopPropagation();window.__solExpStageAll()"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 2v12M2 8h12"/></svg></button>` : ""}
+
+            ${allChanges.length > 0 ? `<button class="sol-exp-hdr-btn danger" title="${t("scm.discardAll")}" onclick="event.stopPropagation();window.__solExpDiscardAll()"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3l10 10M13 3L3 13"/></svg></button>` : ""}
+
+          </span><span class="sol-exp-scm-section-count">${allChanges.length}</span></div>
+
+          ${allChanges.length === 0 ? `<div style="padding:4px 12px 8px 24px;font-size:12px;color:var(--dsw-alias-label-tertiary,#6e6e6e)">${t("scm.changes.none")}</div>` : ""}
+
+          ${allChanges.map((item) => buildSCMItem(item, "changes")).join("")}
+
+        </div>
+
+      `;
+
+					if (staged.length > 0) topHTML += `
+
+          <div class="sol-exp-scm-section" data-section="staged">
+
+            <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('staged')"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4"/></svg>${t("scm.staged")}<span class="sol-exp-scm-header-actions">
+
+              <button class="sol-exp-hdr-btn" title="${t("scm.unstageAll")}" onclick="event.stopPropagation();window.__solExpUnstageAll()"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 14V3M3.5 7.5L8 3l4.5 4.5"/></svg></button>
+
+            </span><span class="sol-exp-scm-section-count">${staged.length}</span></div>
+
+            ${staged.map((item) => buildSCMItem(item, "staged")).join("")}
+
+          </div>
+
+        `;
+
+					return topHTML;
+
+				}
+
 				function buildSCMContent() {
 
 					if (!root) return `<div class="sol-exp-content"><div class="sol-exp-empty">${t("panel.empty")}</div></div>`;
@@ -1504,7 +1745,7 @@ async function doStage(files) {
 
           <div style="padding:4px 12px 8px 24px;flex:1;min-height:0;display:flex;flex-direction:column">
 
-            ${repos.map((r) => `<div class="sol-exp-repo-item ${activeRepo === r.path ? "active" : ""}" onclick="window.__solExpSelectRepo('${r.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')"><span class="sol-exp-repo-icon">⑂</span><span class="sol-exp-repo-name">${r.name}</span><span class="sol-exp-repo-branch">${r.branch}</span><span class="sol-exp-hdr-btn" title="${t("scm.remote.title")}" onclick="event.stopPropagation();window.__solExpRemotePanel()"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M6.5 9.5a3 3 0 0 0 4.24 0l2-2a3 3 0 0 0-4.24-4.24l-1 1"/><path d="M9.5 6.5a3 3 0 0 0-4.24 0l-2 2a3 3 0 0 0 4.24 4.24l1-1"/></svg></button></span><span class="sol-exp-hdr-btn" title="${t("scm.branch.title")}" onclick="event.stopPropagation();window.__solExpBranchPanel()"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="3.5" r="1.5"/><circle cx="5" cy="12.5" r="1.5"/><circle cx="11.5" cy="7" r="1.5"/><path d="M5 5v5.5M11.5 8.5c0 2.2-1.3 3-4.2 3"/></svg></button></span></div>`).join("")}<div style="font-size:12px;color:var(--dsw-alias-label-secondary);margin-bottom:6px">${t("scm.repository.branch")}</div><span class="sol-exp-branch-pill">⑂ ${status?.branch || ""}</span>
+            ${repos.map((r) => `<div class="sol-exp-repo-item ${activeRepo === r.path ? "active" : ""}" data-repo-path="${r.path.replace(/"/g, "&quot;")}" onclick="window.__solExpSelectRepo('${r.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')"><span class="sol-exp-repo-icon">⑂</span><span class="sol-exp-repo-name">${r.name}</span><span class="sol-exp-repo-branch">${r.branch}</span><span class="sol-exp-hdr-btn" title="${t("scm.remote.title")}" onclick="event.stopPropagation();window.__solExpRemotePanel()"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M6.5 9.5a3 3 0 0 0 4.24 0l2-2a3 3 0 0 0-4.24-4.24l-1 1"/><path d="M9.5 6.5a3 3 0 0 0-4.24 0l-2 2a3 3 0 0 0 4.24 4.24l1-1"/></svg></button></span><span class="sol-exp-hdr-btn" title="${t("scm.branch.title")}" onclick="event.stopPropagation();window.__solExpBranchPanel()"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="3.5" r="1.5"/><circle cx="5" cy="12.5" r="1.5"/><circle cx="11.5" cy="7" r="1.5"/><path d="M5 5v5.5M11.5 8.5c0 2.2-1.3 3-4.2 3"/></svg></button></span></div>`).join("")}<div style="font-size:12px;color:var(--dsw-alias-label-secondary);margin-bottom:6px">${t("scm.repository.branch")}</div><span class="sol-exp-branch-pill">⑂ ${status?.branch || ""}</span>
 
             ${remotePanelOpen ? `<div style="margin:6px 0;padding:8px;border:1px solid var(--dsw-alias-border-l2,#333);border-radius:6px;font-size:12px"><div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><b>${t("scm.remote.title")}</b><span style="flex:1"></span><button class="sol-exp-commit-detail-close" onclick="window.__solExpRemotePanel()">✕</button></div>${remotesList.length === 0 ? `<div style="color:var(--dsw-alias-label-tertiary,#6e6e6e);padding:2px 0 6px">${t("scm.remote.none")}</div>` : remotesList.map((r) => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="flex:none;font-weight:600">${escapeHtml(r.name)}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary,#969696)">${escapeHtml(r.url)}</span><button class="sol-exp-commit-detail-btn" onclick="window.__solExpRemoteSetUrl('${r.name.replace(/'/g, "\\'")}')">${t("scm.remote.setUrl")}</button><button class="sol-exp-commit-detail-btn" onclick="window.__solExpRemoteRemove('${r.name.replace(/'/g, "\\'")}')">${t("scm.remote.remove")}</button></div>`).join("")}<div style="display:flex;gap:6px;margin-top:8px"><input class="sol-exp-commit-input" style="min-height:0;height:26px;flex:1" placeholder="${t("scm.remote.name")}" value="${escapeHtml(remoteName)}" oninput="window.__solExpRemoteName(this.value)"/><input class="sol-exp-commit-input" style="min-height:0;height:26px;flex:2" placeholder="${t("scm.remote.url")} (https://… 或 git@…)" value="${escapeHtml(remoteUrl)}" oninput="window.__solExpRemoteUrl(this.value)"/><button class="sol-exp-commit-detail-btn" onclick="window.__solExpRemoteAdd()">${t("scm.remote.addBtn")}</button></div></div>` : ""}
 
@@ -1699,7 +1940,9 @@ async function doStage(files) {
 
             <span class="sol-exp-file-icon">${icon}</span>
 
-            <span class="sol-exp-file-name${gitCls ? " sol-exp-git-" + gitCls : ""}">${escapeHtml(node.name)}</span>
+            ${node.path === renamingPath
+              ? `<input class="sol-exp-rename-input" data-sol-exp-rename="1" value="${escapeHtml(node.name)}" onclick="event.stopPropagation()" onkeydown="if(event.key==='Enter')window.__solExpRenameCommit(this.value);else if(event.key==='Escape')window.__solExpRenameCancel()" onblur="window.__solExpRenameCommit(this.value)" />`
+              : `<span class="sol-exp-file-name${gitCls ? " sol-exp-git-" + gitCls : ""}">${escapeHtml(node.name)}</span>`}
 
             ${node.gitStatus ? `<span class="sol-exp-git-letter sol-exp-git-${gitCls}">${node.gitStatus}</span>` : ""}
 
@@ -1710,6 +1953,95 @@ async function doStage(files) {
         </div>
 
       `;
+
+				}
+
+				// Incremental tree update: reconcile the existing tree DOM against
+				// a new tree, patching only the nodes that changed (keyed by
+				// data-sol-exp-path). Unchanged nodes keep their DOM, so the
+				// expanded state and scroll position survive and nothing flashes.
+				function reconcileTree(container, nodes, depth) {
+
+					if (!container || !nodes) return;
+
+					const existing = new Map();
+
+					for (const wrapper of container.children) {
+
+						const row = wrapper.firstElementChild;
+
+						const p = row ? row.getAttribute("data-sol-exp-path") : null;
+
+						if (p !== null && p !== undefined) existing.set(p, wrapper);
+
+					}
+
+					const seen = new Set();
+
+					const tmp = document.createElement("div");
+
+					for (let i = 0; i < nodes.length; i++) {
+
+						const node = nodes[i];
+
+						seen.add(node.path);
+
+						const wrapper = existing.get(node.path);
+
+						if (wrapper) {
+
+							// Rebuild this node's row only when its content
+							// actually changed (name/git status/state) — an
+							// unchanged row keeps its DOM untouched so the
+							// tree does not repaint on every refresh.
+							tmp.innerHTML = renderTreeNode(node, depth);
+
+							const newRow = tmp.querySelector(".sol-exp-tree-node");
+
+							const oldRow = wrapper.querySelector(".sol-exp-tree-node");
+
+							if (newRow && oldRow && newRow.outerHTML !== oldRow.outerHTML) oldRow.replaceWith(newRow);
+
+							const isDir = node.type === "directory";
+
+							if (isDir && expandedPaths.has(node.path)) {
+
+								const childBox = wrapper.querySelector(".sol-exp-tree-children");
+
+								if (childBox && node.children) reconcileTree(childBox, node.children, depth + 1);
+
+							}
+
+						} else {
+
+							// New node: build its wrapper and insert it before
+							// the next existing sibling (keeps order stable).
+							tmp.innerHTML = renderTreeNode(node, depth);
+
+							const newWrapper = tmp.firstElementChild;
+
+							if (!newWrapper) continue;
+
+							let ref = null;
+
+							for (let j = i + 1; j < nodes.length; j++) {
+
+								if (existing.has(nodes[j].path)) { ref = existing.get(nodes[j].path); break; }
+
+							}
+
+							container.insertBefore(newWrapper, ref);
+
+						}
+
+					}
+
+					// Remove wrappers that no longer exist in the new tree.
+					for (const [p, wrapper] of existing) {
+
+						if (!seen.has(p)) wrapper.remove();
+
+					}
 
 				}
 
@@ -1727,7 +2059,16 @@ async function doStage(files) {
 
 					render();
 
-					if (tab === "scm") loadGitStatus();
+					if (tab === "scm") {
+
+						// Reload status and commit history when the SCM tab
+						// opens — the commit list is only populated here and
+						// on explicit refresh, never by background polling.
+						loadGitStatus();
+
+						loadRecentCommits();
+
+					}
 
 				};
 
@@ -2321,7 +2662,12 @@ async function doStage(files) {
 
 				window.__solExpRefresh = () => {
 
-					loadTree();
+					// Refresh without the loading flash once a tree exists:
+					// reconcile in place; only the very first load falls back
+					// to the full loading path.
+					if (treeState) refreshTreeSilent();
+
+					else loadTree();
 
 					loadGitStatus();
 
@@ -2349,7 +2695,10 @@ async function doStage(files) {
 
 				window.__solExpRefreshSCM = () => {
 
+					// Silent refresh: re-render only the SCM region, no flash.
 					loadGitStatus();
+
+					loadRecentCommits();
 
 				};
 
@@ -2357,7 +2706,12 @@ async function doStage(files) {
 
 					commitMessage = msg;
 
-					render();
+					// Toggle the commit button in place: a full render() resets the
+					// async-loaded commit history and the textarea caret on every keystroke.
+					document.querySelectorAll(".sol-exp-commit-btn").forEach((btn) => {
+						if (committing || !commitMessage.trim()) btn.setAttribute("disabled", "disabled");
+						else btn.removeAttribute("disabled");
+					});
 
 				};
 
@@ -2541,6 +2895,8 @@ async function doStage(files) {
 
 					if (targets.length) {
 
+						if (targets.length === 1) addItem("重命名", false, () => window.__solExpRename(targets[0]));
+
 						addItem("复制", false, () => {
 
 							window.__solExpCopy();
@@ -2574,6 +2930,80 @@ async function doStage(files) {
 					document.body.appendChild(menu);
 
 					contextMenuEl = menu;
+
+				};
+
+				window.__solExpRename = (path) => {
+
+					renamingPath = path;
+
+					render();
+
+					const input = activeEl ? activeEl.querySelector("[data-sol-exp-rename]") : null;
+
+					if (input) { input.focus(); input.select(); }
+
+				};
+
+				window.__solExpRenameCancel = () => {
+
+					if (!renamingPath) return;
+
+					renamingPath = "";
+
+					render();
+
+				};
+
+				window.__solExpRenameCommit = async (name) => {
+
+					const path = renamingPath;
+
+					if (!path) return;
+
+					renamingPath = "";
+
+					const newName = String(name || "").trim();
+
+					const oldName = path.split(/[\\/]/).pop() || "";
+
+					if (!newName || newName === oldName) { render(); return; }
+
+					try {
+
+						const result = await (await fetch("/solution-explorer/rename", {
+
+							method: "POST",
+
+							headers: { "Content-Type": "application/json" },
+
+							body: JSON.stringify({ root, source: path, newName }),
+
+						})).json();
+
+						if (result.ok) {
+
+							if (treeState) refreshTreeSilent();
+
+							else loadTree();
+
+							loadGitStatus();
+
+						} else {
+
+							showToast(result.error?.message || "重命名失败", true);
+
+							render();
+
+						}
+
+					} catch (err) {
+
+						showToast(String((err && err.message) || err), true);
+
+						render();
+
+					}
 
 				};
 
@@ -2623,11 +3053,37 @@ async function doStage(files) {
 
 					for (const p of paths) selectedPaths.delete(p);
 
+					// If the editor is showing a deleted file, close it so the
+					// stale preview (an image especially) cannot linger.
+					if (_editorFile && paths.includes(_editorFile)) {
+
+						_editorFile = null;
+
+						_editorContent = null;
+
+						_editorLoading = false;
+
+						_editorError = null;
+
+						_editorUnsupported = false;
+
+						_editorImage = false;
+
+						_editorSaving = false;
+
+						_editorRoot = "";
+
+						_notifyEditorListeners();
+
+					}
+
 					if (failed) alert(failed + " 项删除失败");
 
-					render();
+					// Silent refresh: reconcile the tree in place and update
+					// SCM state — no loading flash, no full-panel rebuild.
+					if (treeState) refreshTreeSilent();
 
-					loadTree();
+					else loadTree();
 
 					loadGitStatus();
 
@@ -2649,25 +3105,53 @@ async function doStage(files) {
 
 				window.__solExpScmDividerDown = (e) => {
 				e.preventDefault();
-				const split = document.querySelector(".sol-exp-scm-split");
-				const top = document.querySelector(".sol-exp-scm-top") as HTMLElement;
-				const bottom = document.querySelector(".sol-exp-scm-bottom") as HTMLElement;
-				if (!split || !top || !bottom) return;
+				// Freeze auto-refresh for the duration of the drag so a poll
+				// cannot rebuild the SCM region under the pointer.
+				scmDragging = true;
+				// Query inside the active panel: global queries could hit a stale
+				// or duplicate SCM region after session/repo switches.
+				const scope = activeEl ?? document;
+				const split = scope.querySelector(".sol-exp-scm-split");
+				const top = scope.querySelector(".sol-exp-scm-top") as HTMLElement;
+				const bottom = scope.querySelector(".sol-exp-scm-bottom") as HTMLElement;
+				if (!split || !top || !bottom) { scmDragging = false; return; }
+				const el = e.currentTarget as HTMLElement;
+				try { el.setPointerCapture?.(e.pointerId); } catch { /* ignore */ }
 				const rect = split.getBoundingClientRect();
+				// Guard against a zero-height split (collapsed region): fall back
+				// to the panel height so the ratio never becomes NaN.
+				const height = rect.height > 0 ? rect.height : (split.parentElement?.getBoundingClientRect().height ?? 300) || 300;
 				const startY = e.clientY;
 				const startSplit = scmSplit;
 				const onMove = (me) => {
 				const dy = me.clientY - startY;
-				scmSplit = Math.min(85, Math.max(15, startSplit + (dy / rect.height) * 100));
-				top.style.flexBasis = scmSplit + "%";
-				bottom.style.flexBasis = (100 - scmSplit) + "%";
+				// Re-measure each move: right after startup the split may still be
+				// settling, and a stale tiny height would blow up the ratio.
+				const curRect = split.getBoundingClientRect();
+				const h = curRect.height > 200 ? curRect.height : height;
+				const target = Math.min(85, Math.max(15, startSplit + (dy / h) * 100));
+				// Clamp the per-move delta so one bad measurement cannot jump the
+				// divider far down/up — the ratio only ever moves by <= 8% per move.
+				const next = Math.min(Math.max(target, scmSplit - 8), scmSplit + 8);
+				if (next === scmSplit) return;
+				scmSplit = next;
+				// Re-query each move so a refresh replacing the SCM region
+				// mid-drag cannot invalidate the element references.
+				const t = scope.querySelector(".sol-exp-scm-top") as HTMLElement | null;
+				const b = scope.querySelector(".sol-exp-scm-bottom") as HTMLElement | null;
+				if (t) t.style.flexBasis = scmSplit + "%";
+				if (b) b.style.flexBasis = (100 - scmSplit) + "%";
 				};
 				const onUp = () => {
+				scmDragging = false;
+				try { el.releasePointerCapture?.(e.pointerId); } catch { /* ignore */ }
 				document.removeEventListener("pointermove", onMove);
 				document.removeEventListener("pointerup", onUp);
+				document.removeEventListener("pointercancel", onUp);
 				};
 				document.addEventListener("pointermove", onMove);
 				document.addEventListener("pointerup", onUp);
+				document.addEventListener("pointercancel", onUp);
 				};
 
 				const PANEL_WIDTH_DEFAULT = 280;
@@ -2696,18 +3180,22 @@ async function doStage(files) {
 							if (typeof res.value.defaultWidth === "number" && res.value.defaultWidth >= PANEL_MIN && res.value.defaultWidth <= PANEL_MAX) PANEL_WIDTH = res.value.defaultWidth;
 							if (typeof res.value.autoOpen === "boolean") panelAutoOpen = res.value.autoOpen;
 							settingsLoaded = true;
-							// First-time defaults only — never after a drag.
+							// Width/visibility are first-time defaults only —
+							// never after a drag. The tree, however, always
+							// reloads so filter/show-hidden changes apply.
 							if (root !== "" && !panelDragged && panelFrame !== null) {
 								panelWidth = panelAutoOpen ? PANEL_WIDTH : 0;
 								applyGrid();
-								loadTree();
 							}
+							if (root !== "") loadTree();
 						}
 					}).catch(() => {});
 				};
 				applySettings();
 				window.addEventListener("sol-exp-settings-saved", applySettings);
 				let scmSplit = 55;
+
+				let scmDragging = false;
 
 				let panelFrame = null;
 
@@ -3047,6 +3535,19 @@ styleObs = new MutationObserver(syncGrid);
 
 				waitForFrame();
 
+				// Auto-refresh the visible tab in place (incremental reconcile —
+				// no loading flash): the file tree or the SCM region, whichever
+				// is on screen, patched locally every few seconds.
+				const autoRefreshTimer = setInterval(() => {
+
+					if (root === "" || document.visibilityState !== "visible" || scmDragging) return;
+
+					if (currentTab === "scm") loadGitStatus();
+
+					else if (currentTab === "explorer") refreshTreeSilent();
+
+				}, 4000);
+
 				console.log("[sol-exp] injecting __solExpOpenFile");
 
 				window.__solExpOpenFile = async (path) => {
@@ -3309,6 +3810,12 @@ styleObs = new MutationObserver(syncGrid);
 
 						"__solExpDeleteFile",
 
+						"__solExpRename",
+
+						"__solExpRenameCommit",
+
+						"__solExpRenameCancel",
+
 						"__solExpContextMenu",
 
 						"__solExpOpenFile",
@@ -3400,6 +3907,8 @@ styleObs = new MutationObserver(syncGrid);
 					document.removeEventListener("drop", dragGuard);
 
 					window.removeEventListener("sol-exp-settings-saved", applySettings);
+
+					clearInterval(autoRefreshTimer);
 
 				};
 
@@ -4566,6 +5075,8 @@ spellCheck: false
 
 			const [patterns, setPatterns] = useState("");
 
+			const [showHidden, setShowHidden] = useState(false);
+
 			const [saved, setSaved] = useState(false);
 
 			useEffect(() => {
@@ -4581,6 +5092,8 @@ spellCheck: false
 					setAutoOpen(!!res.value.autoOpen);
 
 					setPatterns((res.value.filterPatterns || []).join(", "));
+
+					setShowHidden(!!res.value.showHidden);
 
 				}).catch(() => {});
 
@@ -4598,6 +5111,8 @@ spellCheck: false
 
 					autoOpen,
 
+					showHidden,
+
 					filterPatterns: patterns.split(",").map((s) => s.trim()).filter((s) => s.length > 0),
 
 				}) }).then((r) => r.json()).then((res) => {
@@ -4611,7 +5126,7 @@ spellCheck: false
 
 			};
 
-			const reset = () => { setWidth("280"); setAutoOpen(true); setPatterns(""); };
+			const reset = () => { setWidth("280"); setAutoOpen(true); setShowHidden(false); setPatterns(""); };
 
 			const field = (label, hint, control) => h("div", { className: "sol-set-field" },
 
@@ -4652,6 +5167,14 @@ spellCheck: false
 							h("span", { className: "sol-set-sw-track" }, h("span", { className: "sol-set-sw-thumb" }))))),
 
 				card(t("settings.group.tree"), t("settings.group.tree.desc"),
+
+					field(t("settings.hidden.label"), t("settings.hidden.hint"),
+
+						h("label", { className: "sol-set-sw" },
+
+							h("input", { type: "checkbox", checked: showHidden, onChange: (e) => setShowHidden(e.target.checked) }),
+
+							h("span", { className: "sol-set-sw-track" }, h("span", { className: "sol-set-sw-thumb" })))),
 
 					field(t("settings.patterns.label"), t("settings.patterns.hint"),
 

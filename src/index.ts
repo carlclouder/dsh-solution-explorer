@@ -102,10 +102,14 @@ function imageMime(ext: string): string {
 /** Get the structured git status of a repo. */
 function getGitStatus(root: string): GitEnvelope {
   if (!isGitRepo(root)) {
-    return { ok: true, value: { staged: [], unstaged: [], untracked: [], conflicts: [], ignored: [], ahead: 0, behind: 0, branch: 'unknown' } }
+    return { ok: true, value: { staged: [], unstaged: [], untracked: [], conflicts: [], ignored: [], ahead: 0, behind: 0, branch: 'unknown', head: '' } }
   }
   const branchResult = git(['rev-parse', '--abbrev-ref', 'HEAD'], root)
   const branch = branchResult.ok ? branchResult.stdout : 'HEAD'
+  // Full HEAD hash lets the client detect external commits/checkouts so the
+  // commit history can auto-refresh after a command-line `git commit`.
+  const headResult = git(['rev-parse', 'HEAD'], root)
+  const head = headResult.ok ? headResult.stdout : ''
 
   const aheadBehind = git(['rev-list', '--left-right', '--count', 'HEAD...@{upstream}'], root)
   let ahead = 0, behind = 0
@@ -162,7 +166,7 @@ function getGitStatus(root: string): GitEnvelope {
     }
   }
 
-  return { ok: true, value: { staged, unstaged, untracked, conflicts, ignored, ahead, behind, branch } }
+  return { ok: true, value: { staged, unstaged, untracked, conflicts, ignored, ahead, behind, branch, head } }
 }
 
 // ─── HTTP helpers ───────────────────────────────────────────────────────────
@@ -1129,6 +1133,7 @@ export interface GitStatusData {
   ahead: number
   behind: number
   branch: string
+  head: string
 }
 
 export interface GitCommit {
