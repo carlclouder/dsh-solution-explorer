@@ -908,6 +908,18 @@ async function loadGitStatus() {
 								if (hadStatus && currentTab === "scm") loadRecentCommits();
 							}
 
+							// Update the sync counter (↑ahead ↓behind) in place when
+							// it changed — e.g. after a command-line git commit —
+							// without rebuilding the repository section.
+							if (hadStatus && activeEl && (prev?.ahead !== gitStatus.ahead || prev?.behind !== gitStatus.behind)) {
+								const repoCount = activeEl.querySelector('.sol-exp-scm-section[data-section="repository"] .sol-exp-scm-section-count');
+								if (repoCount) {
+									const a = gitStatus.ahead || 0;
+									const b = gitStatus.behind || 0;
+									repoCount.textContent = (a > 0 || b > 0) ? `↑${a} ↓${b}` : "";
+								}
+							}
+
 						}
 
 					} catch {}
