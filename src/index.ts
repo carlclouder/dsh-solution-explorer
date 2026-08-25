@@ -355,22 +355,27 @@ function annotateGitStatus(node: FileTreeNode, status: GitStatusData): boolean {
     if (!map.has(norm(c.path))) map.set(norm(c.path), 'U')
   }
   const ignoredSet = new Set(status.ignored.map((c) => norm(c.path)))
-  const walk = (n: FileTreeNode): boolean => {
+  // Git reports an ignored directory as a single "!! dir/" line and never
+  // expands its contents, so inherit the ignored state down the tree:
+  // everything under an excluded directory is greyed too, unless a tracked
+  // change (e.g. a force-added file) overrides the marker.
+  const walk = (n: FileTreeNode, parentIgnored: boolean): boolean => {
     const key = norm(n.path)
+    const selfIgnored = parentIgnored || ignoredSet.has(key)
     if (n.type === 'file') {
-      n.gitStatus = map.get(key) ?? (ignoredSet.has(key) ? '!' : undefined)
+      n.gitStatus = map.get(key) ?? (selfIgnored ? '!' : undefined)
       return n.gitStatus !== undefined && n.gitStatus !== '!'
     }
     let hasChanges = false
     for (const child of n.children ?? []) {
-      if (walk(child)) hasChanges = true
+      if (walk(child, selfIgnored)) hasChanges = true
     }
     // A change anywhere beats an "ignored" marker; an ignored directory with
     // no changes shows grey ('!') so excluded folders read at a glance.
-    n.gitStatus = hasChanges ? 'M' : ignoredSet.has(key) ? '!' : undefined
+    n.gitStatus = hasChanges ? 'M' : selfIgnored ? '!' : undefined
     return hasChanges
   }
-  walk(node)
+  walk(node, false)
   return true
 }
 
