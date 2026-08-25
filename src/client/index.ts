@@ -330,6 +330,21 @@ declare global {
 .sol-exp-git-letter { flex:none; font-size:11px; font-weight:700; width:16px; text-align:center; margin-left:6px; }
 
 .sol-exp-context-menu { position:absolute; z-index:1000; min-width:140px; padding:4px; background:var(--dsw-alias-bg-overlay,var(--dsw-alias-bg-layer-3,#1e1e1e)); border:1px solid var(--dsw-alias-border-l2); border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.3); font-size:13px; color:var(--dsw-alias-label-primary); }
+.sol-exp-modal-mask { position:fixed; inset:0; z-index:100000; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.45); backdrop-filter:blur(2px); animation:solExpModalFade .15s ease; }
+.sol-exp-modal-box { width:min(420px, calc(100vw - 48px)); background:var(--dsw-alias-bg-overlay); border:1px solid var(--dsw-alias-border-l2); border-radius:10px; box-shadow:0 12px 40px rgba(0,0,0,0.35); overflow:hidden; animation:solExpModalPop .16s ease; }
+.sol-exp-modal-title { padding:16px 16px 0; font-size:15px; font-weight:600; color:var(--dsw-alias-label-primary); }
+.sol-exp-modal-message { padding:8px 16px 0; font-size:13px; line-height:1.6; color:var(--dsw-alias-label-secondary); white-space:pre-wrap; word-break:break-word; }
+.sol-exp-modal-input { box-sizing:border-box; width:calc(100% - 32px); margin:12px 16px 0; padding:7px 10px; border-radius:6px; border:1px solid var(--dsw-alias-border-l2); background:transparent; color:var(--dsw-alias-label-primary); font-size:13px; outline:none; }
+.sol-exp-modal-input:focus { border-color:var(--dsw-alias-border-l3); }
+.sol-exp-modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; padding:12px 16px; border-top:1px solid var(--dsw-alias-border-l3); }
+.sol-exp-modal-btn { padding:5px 14px; border-radius:6px; border:1px solid transparent; background:transparent; color:var(--dsw-alias-label-secondary); font-size:13px; cursor:pointer; transition:background .12s ease, color .12s ease, opacity .12s ease; }
+.sol-exp-modal-btn:hover { background:var(--dsw-alias-interactive-bg-hover); color:var(--dsw-alias-label-primary); }
+.sol-exp-modal-btn.primary { background:var(--dsw-alias-button-primary-fill); color:var(--dsw-alias-label-primary-foreground); }
+.sol-exp-modal-btn.primary:hover { background:var(--dsw-alias-button-primary-fill); opacity:.88; }
+.sol-exp-modal-btn.danger { background:var(--dsw-alias-state-error-primary); color:var(--dsw-alias-label-primary-foreground); }
+.sol-exp-modal-btn.danger:hover { background:var(--dsw-alias-state-error-primary); opacity:.88; }
+@keyframes solExpModalFade { from { opacity:0; } to { opacity:1; } }
+@keyframes solExpModalPop { from { opacity:0; transform:scale(.96) translateY(4px); } to { opacity:1; transform:none; } }
 
 .sol-exp-context-menu-item { padding:6px 12px; cursor:pointer; border-radius:6px; display:flex; align-items:center; gap:8px; color:var(--dsw-alias-label-primary); }
 
@@ -1017,6 +1032,50 @@ function showToast(msg, isError = false) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { el.style.opacity = "0"; setTimeout(() => el.remove(), 400); }, 4000);
 }
+// ─── Centered DSH-style dialogs ─────────────────────────────────
+// Replaces native window.confirm/window.prompt with an in-page modal
+// styled with the same --dsw-alias-* tokens as the rest of the panel.
+function showDialog(opts) {
+  return new Promise((resolve) => {
+    const zh = document.documentElement.lang?.startsWith("zh");
+    const isPrompt = opts.input === true;
+    const okText = opts.okText || (zh ? "确定" : "OK");
+    const cancelText = opts.cancelText || (zh ? "取消" : "Cancel");
+    // Last dialog wins: remove any previously open modal.
+    document.querySelectorAll(".sol-exp-modal-mask").forEach((el) => el.remove());
+    const mask = document.createElement("div");
+    mask.className = "sol-exp-modal-mask";
+    mask.innerHTML =
+      '<div class="sol-exp-modal-box" role="dialog" aria-modal="true">' +
+      (opts.title ? `<div class="sol-exp-modal-title">${escapeHtml(opts.title)}</div>` : "") +
+      (opts.message ? `<div class="sol-exp-modal-message">${escapeHtml(opts.message)}</div>` : "") +
+      (isPrompt ? `<input class="sol-exp-modal-input" value="${escapeHtml(opts.inputValue || "")}" placeholder="${escapeHtml(opts.placeholder || "")}" />` : "") +
+      '<div class="sol-exp-modal-actions">' +
+      `<button class="sol-exp-modal-btn" data-act="cancel">${escapeHtml(cancelText)}</button>` +
+      `<button class="sol-exp-modal-btn ${opts.danger ? "danger" : "primary"}" data-act="ok">${escapeHtml(okText)}</button>` +
+      "</div></div>";
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      mask.remove();
+      resolve(value);
+    };
+    const input = mask.querySelector(".sol-exp-modal-input") as HTMLInputElement | null;
+    mask.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { e.stopPropagation(); finish(isPrompt ? null : false); }
+      else if (e.key === "Enter") { e.stopPropagation(); e.preventDefault(); finish(isPrompt ? (input ? input.value : null) : true); }
+    });
+    mask.addEventListener("mousedown", (e) => { if (e.target === mask) finish(isPrompt ? null : false); });
+    (mask.querySelector('[data-act="cancel"]') as HTMLElement | null)?.addEventListener("click", () => finish(isPrompt ? null : false));
+    (mask.querySelector('[data-act="ok"]') as HTMLElement | null)?.addEventListener("click", () => finish(isPrompt ? (input ? input.value : null) : true));
+    document.body.appendChild(mask);
+    if (input) { input.focus(); input.select(); }
+    else { const okBtn = mask.querySelector('[data-act="ok"]') as HTMLElement | null; if (okBtn) okBtn.focus(); }
+  });
+}
+function showConfirm(opts) { return showDialog(Object.assign({}, opts, { input: false })) as Promise<boolean>; }
+function showPrompt(opts) { return showDialog(Object.assign({}, opts, { input: true })) as Promise<string | null>; }
 function resetGraph() {
   graphLanes = [];
   graphPrevLanes = [];
@@ -1125,7 +1184,7 @@ window.__solExpCommitDetail = async (hash) => {
 window.__solExpCommitCheckout = async (hash) => {
   if (!hash) return;
   const zh = document.documentElement.lang?.startsWith("zh");
-  const ok = window.confirm(zh ? `Checkout 到 ${hash.substring(0, 8)}？\n注意：将进入 detached HEAD 状态（不在任何分支上）。` : `Checkout ${hash.substring(0, 8)}?\nNote: this enters a detached HEAD state.`);
+  const ok = await showConfirm({ title: "Checkout", okText: "Checkout", message: zh ? `Checkout 到 ${hash.substring(0, 8)}？\n注意：将进入 detached HEAD 状态（不在任何分支上）。` : `Checkout ${hash.substring(0, 8)}?\nNote: this enters a detached HEAD state.` });
   if (!ok) return;
   const result = await (await fetch("/solution-explorer/git-branch-checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name: hash }) })).json();
   if (!result.ok) alert(result.error?.message || "切换失败");
@@ -1144,7 +1203,7 @@ async function loadTags() {
   tagsList = result.ok && result.value ? result.value : [];
 }
 window.__solExpGitInit = async () => {
-  if (!window.confirm(t("scm.init.confirm"))) return;
+  if (!(await showConfirm({ title: t("scm.init.button"), message: t("scm.init.confirm"), okText: t("scm.init.button") }))) return;
   const result = await (await fetch("/solution-explorer/git-init", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot() }) })).json();
   if (!result.ok) alert(result.error?.message || "初始化失败");
   else { await loadRepos(); await loadGitStatus(); window.__solExpRefresh(); }
@@ -1159,7 +1218,7 @@ window.__solExpFetch = async () => {
   }
 };
 window.__solExpPull = async () => {
-  if (!window.confirm(t("scm.sync.pullConfirm"))) return;
+  if (!(await showConfirm({ title: t("scm.sync.pull"), message: t("scm.sync.pullConfirm"), okText: t("scm.sync.pull") }))) return;
   const result = await (await fetch("/solution-explorer/git-pull", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot() }) })).json();
   if (!result.ok) showToast(result.error?.message || "拉取失败", true);
   else {
@@ -1169,7 +1228,7 @@ window.__solExpPull = async () => {
   }
 };
 window.__solExpPush = async () => {
-  if (!window.confirm(t("scm.sync.pushConfirm"))) return;
+  if (!(await showConfirm({ title: t("scm.sync.push"), message: t("scm.sync.pushConfirm"), okText: t("scm.sync.push") }))) return;
   const result = await (await fetch("/solution-explorer/git-push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot() }) })).json();
   if (!result.ok) showToast(result.error?.message || "推送失败", true);
   else {
@@ -1179,7 +1238,7 @@ window.__solExpPush = async () => {
   }
 };
 window.__solExpSync = async () => {
-  if (!window.confirm(t("scm.sync.syncConfirm"))) return;
+  if (!(await showConfirm({ title: t("scm.sync.sync"), message: t("scm.sync.syncConfirm"), okText: t("scm.sync.sync") }))) return;
   const result = await (await fetch("/solution-explorer/git-sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot() }) })).json();
   if (!result.ok) showToast(result.error?.message || "同步失败", true);
   else {
@@ -1198,12 +1257,12 @@ window.__solExpRemoteAdd = async () => {
   else { remoteName = ""; remoteUrl = ""; await loadRemotes(); render(); }
 };
 window.__solExpRemoteRemove = async (name) => {
-  if (!window.confirm(t("scm.remote.removeConfirm").replace("{name}", name))) return;
+  if (!(await showConfirm({ title: t("scm.remote.title"), message: t("scm.remote.removeConfirm").replace("{name}", name), okText: t("scm.remote.remove"), danger: true }))) return;
   const result = await (await fetch("/solution-explorer/git-remote-remove", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name }) })).json();
   if (!result.ok) alert(result.error?.message || "删除远程失败"); else { await loadRemotes(); render(); }
 };
 window.__solExpRemoteSetUrl = async (name) => {
-  const url = window.prompt("新的 URL（" + name + "）");
+  const url = await showPrompt({ title: t("scm.remote.title"), message: "新的 URL（" + name + "）", placeholder: "https://… 或 git@…" });
   if (!url || !url.trim()) return;
   const result = await (await fetch("/solution-explorer/git-remote-set-url", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name, url: url.trim() }) })).json();
   if (!result.ok) alert(result.error?.message || "修改地址失败"); else await loadRemotes();
@@ -1233,30 +1292,30 @@ window.__solExpBranchCheckout = async (name, isRemote) => {
   }
 };
 window.__solExpBranchDelete = async (name) => {
-  if (!window.confirm(t("scm.branch.deleteConfirm").replace("{name}", name))) return;
+  if (!(await showConfirm({ title: t("scm.branch.title"), message: t("scm.branch.deleteConfirm").replace("{name}", name), okText: t("scm.branch.delete"), danger: true }))) return;
   let result = await (await fetch("/solution-explorer/git-branch-delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name }) })).json();
   // Safe delete (-d) refuses unmerged branches — offer a forced delete (-D).
   if (!result.ok && String(result.error?.message || "").includes("not fully merged")) {
     const zh = document.documentElement.lang?.startsWith("zh");
-    const ok = window.confirm(zh ? "该分支有未合并的提交，确定强制删除？此操作不可撤销。" : "This branch has unmerged commits. Force delete? This cannot be undone.");
+    const ok = await showConfirm({ title: t("scm.branch.title"), message: zh ? "该分支有未合并的提交，确定强制删除？此操作不可撤销。" : "This branch has unmerged commits. Force delete? This cannot be undone.", okText: zh ? "强制删除" : "Force delete", danger: true });
     if (!ok) return;
     result = await (await fetch("/solution-explorer/git-branch-delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name, force: true }) })).json();
   }
   if (!result.ok) showToast(result.error?.message || "删除失败", true); else { await loadBranches(); render(); }
 };
 window.__solExpBranchRename = async (name) => {
-  const newName = window.prompt(t("scm.branch.newName") + " (" + name + ")");
+  const newName = await showPrompt({ title: t("scm.branch.title"), message: t("scm.branch.newName") + " (" + name + ")", placeholder: name });
   if (!newName || !newName.trim()) return;
   const result = await (await fetch("/solution-explorer/git-branch-rename", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), oldName: name, newName: newName.trim() }) })).json();
   if (!result.ok) alert(result.error?.message || "重命名失败"); else { await loadBranches(); render(); }
 };
 window.__solExpBranchMerge = async (name) => {
-  if (!window.confirm(t("scm.branch.mergeConfirm").replace("{name}", name))) return;
+  if (!(await showConfirm({ title: t("scm.branch.title"), message: t("scm.branch.mergeConfirm").replace("{name}", name), okText: t("scm.branch.merge") }))) return;
   const result = await (await fetch("/solution-explorer/git-branch-merge", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name }) })).json();
   if (!result.ok) alert(result.error?.message || "合并失败"); else { await loadGitStatus(); await loadRecentCommits(); }
 };
 window.__solExpBranchPublish = async (name) => {
-  if (!window.confirm(t("scm.branch.publishConfirm").replace("{name}", name))) return;
+  if (!(await showConfirm({ title: t("scm.branch.title"), message: t("scm.branch.publishConfirm").replace("{name}", name), okText: t("scm.branch.publish") }))) return;
   const result = await (await fetch("/solution-explorer/git-branch-publish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name }) })).json();
   if (!result.ok) alert(result.error?.message || "发布失败"); else await loadBranches();
 };
@@ -2450,7 +2509,11 @@ async function doStage(files) {
 
 					if (!root) return;
 
-					const name = window.prompt(type === "file" ? "输入文件名" : "输入文件夹名");
+					const zh = document.documentElement.lang?.startsWith("zh");
+					const name = await showPrompt({
+						title: type === "file" ? (zh ? "新建文件" : "New file") : (zh ? "新建文件夹" : "New folder"),
+						message: type === "file" ? (zh ? "输入文件名" : "Enter file name") : (zh ? "输入文件夹名" : "Enter folder name")
+					});
 
 					if (!name || !name.trim()) return;
 
@@ -2855,11 +2918,11 @@ async function doStage(files) {
 
 				};
 
-				window.__solExpDiscardAll = () => {
+				window.__solExpDiscardAll = async () => {
 
 					const all = [...gitStatus?.unstaged || [], ...gitStatus?.untracked || []].map((i) => i.path);
 
-					if (all.length && window.confirm(t("scm.discardAllConfirm"))) doDiscard(all);
+					if (all.length && (await showConfirm({ title: t("scm.changes"), message: t("scm.discardAllConfirm"), okText: document.documentElement.lang?.startsWith("zh") ? "放弃" : "Discard", danger: true }))) doDiscard(all);
 
 				};
 
@@ -3111,7 +3174,8 @@ async function doStage(files) {
 
 					if (!root || !paths.length) return;
 
-					if (!window.confirm("确定删除 " + paths.length + " 项？")) return;
+					const zh = document.documentElement.lang?.startsWith("zh");
+					if (!(await showConfirm({ title: zh ? "删除" : "Delete", message: zh ? "确定删除 " + paths.length + " 项？" : "Delete " + paths.length + " item(s)?", okText: zh ? "删除" : "Delete", danger: true }))) return;
 
 					let done = 0, failed = 0;
 
