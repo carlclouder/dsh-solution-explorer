@@ -26,12 +26,15 @@ export interface Config {
   autoOpen?: boolean
   /** Glob patterns to hide from the file tree. */
   filterPatterns?: string[]
+  /** Whether to show dot-prefixed (hidden) files in the tree. */
+  showHidden?: boolean
 }
 
 export const Config: z<Config> = z.object({
   defaultWidth: z.number().step(1).min(264).max(420).default(280),
   autoOpen: z.boolean().default(true),
   filterPatterns: z.array(z.string()).default([]),
+  showHidden: z.boolean().default(false),
 })
 
 /** Required services: the route registry, the workspace registry, and the prompt band. */
@@ -236,7 +239,7 @@ function matchesFilter(name: string, patterns: string[] | undefined): boolean {
   })
 }
 
-async function buildFileTree(root: string, relativePath: string, filterPatterns: string[] = []): Promise<FileTreeNode> {
+async function buildFileTree(root: string, relativePath: string, filterPatterns: string[] = [], showHidden = false): Promise<FileTreeNode> {
   const fullPath = relativePath ? pathModule.join(root, relativePath) : root
   const name = relativePath ? pathModule.basename(relativePath) : pathModule.basename(root)
   const stat = await fsp.stat(fullPath)
@@ -248,7 +251,9 @@ async function buildFileTree(root: string, relativePath: string, filterPatterns:
   if (stat.isDirectory()) {
     const entries = await fsp.readdir(fullPath, { withFileTypes: true })
     const sorted = entries
-      .filter(e => !e.name.startsWith('.') && e.name !== 'node_modules' && !matchesFilter(e.name, filterPatterns))
+      // Hidden dot-files are skipped unless showHidden; .git stays hidden
+      // either way (git internals are never tree material).
+      .filter(e => (showHidden || !e.name.startsWith('.')) && e.name !== 'node_modules' && e.name !== '.git' && !matchesFilter(e.name, filterPatterns))
       .sort((a, b) => {
         if (a.isDirectory() && !b.isDirectory()) return -1
         if (!a.isDirectory() && b.isDirectory()) return 1
@@ -258,7 +263,7 @@ async function buildFileTree(root: string, relativePath: string, filterPatterns:
     for (const entry of sorted) {
       const childRel = relativePath ? pathModule.join(relativePath, entry.name) : entry.name
       try {
-        node.children.push(await buildFileTree(root, childRel, filterPatterns))
+        node.children.push(await buildFileTree(root, childRel, filterPatterns, showHidden))
       } catch { /* skip unreadable */ }
     }
   }
@@ -430,7 +435,7 @@ export function apply(ctx: Context, config: Config = {}): void {
             const root = query.root || ''
             if (!root) { json(res, { ok: false, error: { message: 'root required' } }); return }
             try {
-              const tree = await buildFileTree(root, '', effectiveConfig.filterPatterns)
+              const tree = await buildFileTree(root, '', effectiveConfig.filterPatterns, !!effectiveConfig.showHidden)
               // Annotate each file with its git status letter and each directory
               // with a "modified" marker (VS Code explorer style).
               const status = getGitStatus(root)
@@ -499,7 +504,7 @@ export function apply(ctx: Context, config: Config = {}): void {
               }
               const ext = pathModule.extname(fullPath).slice(1).toLowerCase()
               const buf = await fsp.readFile(fullPath)
-              res.writeHead(200, { 'content-type': IMAGE_EXT.has(ext) ? imageMime(ext) : 'application/octet-stream' })
+              res.writeHead(200, { 'content-type': IMAGE_EXT.has(ext) ? imageMime(ext) : 'application/octet-stream', 'Cache-Control': 'no-store' })
               res.end(buf)
             } catch (err) {
               json(res, { ok: false, error: { message: err instanceof Error ? err.message : String(err) } })
@@ -709,6 +714,7 @@ export function apply(ctx: Context, config: Config = {}): void {
             const next: Config = { ...effectiveConfig }
             if (typeof payload.defaultWidth === 'number' && payload.defaultWidth >= 264 && payload.defaultWidth <= 420) next.defaultWidth = payload.defaultWidth
             if (typeof payload.autoOpen === 'boolean') next.autoOpen = payload.autoOpen
+            if (typeof payload.showHidden === 'boolean') next.showHidden = payload.showHidden
             if (Array.isArray(payload.filterPatterns)) next.filterPatterns = payload.filterPatterns.filter((x): x is string => typeof x === 'string')
             const parsed = Config(next)
             effectiveConfig = parsed
@@ -846,6 +852,25 @@ export function apply(ctx: Context, config: Config = {}): void {
               }
               const dest = await autoRename(pathModule.join(targetBase, pathModule.basename(sourcePath)))
               await movePath(sourcePath, dest)
+              json(res, { ok: true, value: { path: pathModule.relative(root, dest) } })
+            } catch (err) {
+              json(res, { ok: false, error: { message: err instanceof Error ? err.message : String(err) } })
+            }
+            return
+          }
+          case '/solution-explorer/rename': {
+            const source = typeof payload.source === 'string' ? payload.source : ''
+            const newName = typeof payload.newName === 'string' ? payload.newName : ''
+            if (!root || !source || !newName) { json(res, { ok: false, error: { message: 'root, source and newName required' } }); return }
+            if (newName === '.' || newName === '..' || /[\\/]/.test(newName)) { json(res, { ok: false, error: { message: 'invalid name' } }); return }
+            try {
+              const sourcePath = pathModule.resolve(root, source)
+              if (!ensureInside(root, source)) { json(res, { ok: false, error: { message: 'path traversal denied' } }); return }
+              const dest = pathModule.join(pathModule.dirname(sourcePath), newName)
+              if (dest === sourcePath) { json(res, { ok: true, value: { path: source } }); return }
+              const exists = await fsp.stat(dest).then(() => true).catch(() => false)
+              if (exists) { json(res, { ok: false, error: { message: '目标已存在' } }); return }
+              await fsp.rename(sourcePath, dest)
               json(res, { ok: true, value: { path: pathModule.relative(root, dest) } })
             } catch (err) {
               json(res, { ok: false, error: { message: err instanceof Error ? err.message : String(err) } })

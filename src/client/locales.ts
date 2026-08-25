@@ -147,6 +147,8 @@ const zh = {
   'settings.group.appearance.desc': '右侧面板的宽度与自动打开行为。',
   'settings.group.tree': '文件树',
   'settings.group.tree.desc': '控制文件树中显示的内容。',
+  'settings.hidden.label': '显示隐藏文件',
+  'settings.hidden.hint': '显示以 . 开头的文件（.git 仍隐藏）',
 }
 
 const en: Record<SolutionExplorerKey, string> = {
@@ -281,6 +283,8 @@ const en: Record<SolutionExplorerKey, string> = {
   'settings.group.appearance.desc': 'Right panel width and auto-open behavior.',
   'settings.group.tree': 'File tree',
   'settings.group.tree.desc': 'Controls what the file tree shows.',
+  'settings.hidden.label': 'Show hidden files',
+  'settings.hidden.hint': 'Show dot-prefixed files (.git stays hidden)',
 }
 
 export const dictionaries = { zh, en }
