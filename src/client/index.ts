@@ -383,7 +383,7 @@ declare global {
 .sol-exp-hl .hljs-addition { color: #aff5b4; background-color: #033a16; }
 .sol-exp-hl .hljs-deletion { color: #ffdcd7; background-color: #67060c; }
 .sol-exp-hl .hljs-char.escape_, .sol-exp-hl .hljs-link, .sol-exp-hl .hljs-params, .sol-exp-hl .hljs-property, .sol-exp-hl .hljs-punctuation, .sol-exp-hl .hljs-tag { }
-.sol-exp-scm-section.collapsed > *:not(.sol-exp-scm-section-header) { display:none; }
+.sol-exp-scm-section.collapsed > *:not(.sol-exp-scm-section-header) { display:none !important; }
 .sol-exp-scm-section.collapsed .sol-exp-scm-section-header svg { transform: rotate(0deg) !important; }
 .sol-exp-branch-pill { display:inline-flex; align-items:center; gap:4px; padding:1px 8px; border-radius:999px; background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.08)); font-size:11px; font-weight:500; color:var(--dsw-alias-label-primary,#d4d4d4); }
 .sol-exp-commit-item { display:flex; align-items:center; gap:6px; padding:3px 4px; border-radius:6px; cursor:pointer; }
@@ -410,7 +410,7 @@ declare global {
 .sol-exp-scm-divider::before { content:''; position:absolute; left:0; right:0; top:-6px; bottom:-6px; }
 .sol-exp-scm-divider:hover { background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.12)); }
 .sol-exp-scm-bottom { flex:1 1 45%; min-height:0; display:flex; flex-direction:column; }
-.sol-exp-scm-section[data-section="repository"] { flex:1; min-height:0; display:flex; flex-direction:column; }
+.sol-exp-scm-section[data-section="commits"] { flex:1; min-height:0; display:flex; flex-direction:column; }
 .sol-exp-repo-item { display:flex; align-items:center; gap:6px; padding:3px 8px; border-radius:6px; cursor:pointer; font-size:12px; }
 .sol-exp-repo-item:hover { background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.06)); }
 .sol-exp-repo-item.active { background:var(--dsw-alias-interactive-bg-active,rgba(0,120,212,0.2)); }
@@ -687,6 +687,12 @@ function _notifyDiffListeners() {
 				let searching = false;
 
 				let expandedPaths = /* @__PURE__ */ new Set<string>();
+				// Persisted collapsed state of SCM sections. Kept in state (not
+				// only as a DOM class) so any render() / silent refresh rebuilds
+				// the section with the class — otherwise the repository section
+				// (and the top-half sections after a status refresh) silently
+				// re-expand and the collapse button looks broken.
+				let collapsedSections = /* @__PURE__ */ new Set<string>();
 
 				let selectedPath = null;
 
@@ -715,6 +721,17 @@ function _notifyDiffListeners() {
 				let commitsPage = 0;
 				let commitsAllLoaded = false;
 				let commitsLoading = false;
+				// Cached innerHTML of the recent-commits list: null = not loaded
+				// yet (render shows the loading placeholder), "" = loaded but
+				// empty. render() rebuilds the list from this cache, so a render
+				// landing after the git-log response can never wipe a filled
+				// list back to the placeholder (e.g. tree/repos loads finishing
+				// late after a conversation switch).
+				let commitsHTML: string | null = null;
+				// Generation counter: bumped on every reload/switch so a git-log
+				// fetch still in flight for the previous repo/branch is discarded
+				// instead of writing stale commits into the current list.
+				let commitsSeq = 0;
 				let graphLanes = [];
 				let graphPrevLanes = [];
 				let graphDetailOpen = "";
@@ -1243,26 +1260,50 @@ window.__solExpBranchPublish = async (name) => {
   const result = await (await fetch("/solution-explorer/git-branch-publish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name }) })).json();
   if (!result.ok) alert(result.error?.message || "发布失败"); else await loadBranches();
 };
-async function loadRecentCommits() {
+function commitsListHTML() {
+					if (commitsHTML === null) return "Loading...";
+					if (commitsHTML === "") return t("scm.log.empty");
+					return commitsHTML;
+				}
+				async function loadRecentCommits() {
 					console.log("[sol-exp] loadRecentCommits", Date.now());
 					if (!root || !gitStatus || gitStatus.branch === "unknown") return;
+					// Bump the generation so a git-log fetch still in flight for
+					// the previous repo/branch is discarded when it lands.
+					commitsSeq++;
 					commitsPage = 0;
 					commitsAllLoaded = false;
+					// Drop the cached list: the reload shows the loading
+					// placeholder until fresh commits arrive. render() reads from
+					// commitsHTML, so a late render can never wipe a filled list
+					// back to "Loading…".
+					commitsHTML = null;
+					// Release the in-flight guard — the fetch it protects is stale
+					// now and its response will be thrown away by the seq check.
+					commitsLoading = false;
 					resetGraph();
+					const listEl = document.getElementById("sol-exp-commits-list");
+					if (listEl) listEl.innerHTML = commitsListHTML();
 					await loadCommitsPage();
 				}
 				async function loadCommitsPage() {
 					if (!root || commitsLoading || commitsAllLoaded) return;
+					const seq = commitsSeq;
 					commitsLoading = true;
 					try {
 						const url = `/solution-explorer/git-log?root=${encodeURIComponent(gitRoot())}&count=50&skip=${commitsPage * 50}`;
 						const result = await (await fetch(url)).json();
+						// A newer load took over while this fetch was in flight
+						// (conversation/repo switch, refresh) — discard the stale
+						// response instead of writing it into the current list.
+						if (seq !== commitsSeq) return;
 						console.log("[sol-exp] loadCommitsPage ok", result.ok, result.value ? result.value.length : -1, "el", !!document.getElementById("sol-exp-commits-list"));
 						if (result.ok && result.value) {
 							const commitsList = document.getElementById("sol-exp-commits-list");
 							if (commitsList) {
 								if (commitsPage === 0 && result.value.length === 0) {
 									commitsList.textContent = t("scm.log.empty");
+									commitsHTML = "";
 									commitsAllLoaded = true;
 								} else {
 									const items = result.value.map((commit) => {
@@ -1272,15 +1313,19 @@ async function loadRecentCommits() {
 									}).join("");
 									if (commitsPage === 0) commitsList.innerHTML = items;
 									else commitsList.insertAdjacentHTML("beforeend", items);
+									commitsHTML = commitsPage === 0 ? items : (commitsHTML || "") + items;
 									commitsPage++;
 									if (result.value.length < 50) commitsAllLoaded = true;
 								}
 							}
 						}
 					} catch (err) {
-						console.error("Failed to load commits:", err);
+						if (seq === commitsSeq) console.error("Failed to load commits:", err);
+					} finally {
+						// Only the current generation may release the in-flight
+						// guard; a stale fetch must not clear a newer one's flag.
+						if (seq === commitsSeq) commitsLoading = false;
 					}
-					commitsLoading = false;
 				}
 				window.__solExpCommitsScroll = (evt) => {
 					const el = evt.target as HTMLElement;
@@ -1620,7 +1665,7 @@ async function doStage(files) {
 
 					if (conflicts.length > 0) topHTML += `
 
-        <div class="sol-exp-scm-section" data-section="conflicts">
+        <div class="sol-exp-scm-section${collapsedSections.has("conflicts") ? " collapsed" : ""}" data-section="conflicts">
 
           <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('conflicts')"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4"/></svg>${t("scm.merge.changes")}<span class="sol-exp-scm-header-actions"></span><span class="sol-exp-scm-section-count">${conflicts.length}</span></div>
 
@@ -1648,7 +1693,7 @@ async function doStage(files) {
 
 					topHTML += `
 
-        <div class="sol-exp-scm-section" data-section="changes">
+        <div class="sol-exp-scm-section${collapsedSections.has("changes") ? " collapsed" : ""}" data-section="changes">
 
           <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('changes')"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4"/></svg>${t("scm.changes")}<span class="sol-exp-scm-header-actions">
 
@@ -1670,7 +1715,7 @@ async function doStage(files) {
 
 					if (staged.length > 0) topHTML += `
 
-          <div class="sol-exp-scm-section" data-section="staged">
+          <div class="sol-exp-scm-section${collapsedSections.has("staged") ? " collapsed" : ""}" data-section="staged">
 
             <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('staged')"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4"/></svg>${t("scm.staged")}<span class="sol-exp-scm-header-actions">
 
@@ -1713,7 +1758,7 @@ async function doStage(files) {
 
 					if (conflicts.length > 0) topHTML += `
 
-        <div class="sol-exp-scm-section" data-section="conflicts">
+        <div class="sol-exp-scm-section${collapsedSections.has("conflicts") ? " collapsed" : ""}" data-section="conflicts">
 
           <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('conflicts')"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4"/></svg>${t("scm.merge.changes")}<span class="sol-exp-scm-header-actions"></span><span class="sol-exp-scm-section-count">${conflicts.length}</span></div>
 
@@ -1743,7 +1788,7 @@ async function doStage(files) {
 
 					topHTML += `
 
-        <div class="sol-exp-scm-section" data-section="changes">
+        <div class="sol-exp-scm-section${collapsedSections.has("changes") ? " collapsed" : ""}" data-section="changes">
 
           <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('changes')"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4"/></svg>${t("scm.changes")}<span class="sol-exp-scm-header-actions">
 
@@ -1765,7 +1810,7 @@ async function doStage(files) {
 
 					if (staged.length > 0) topHTML += `
 
-          <div class="sol-exp-scm-section" data-section="staged">
+          <div class="sol-exp-scm-section${collapsedSections.has("staged") ? " collapsed" : ""}" data-section="staged">
 
             <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('staged')"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4"/></svg>${t("scm.staged")}<span class="sol-exp-scm-header-actions">
 
@@ -1781,7 +1826,7 @@ async function doStage(files) {
 
 					bottomHTML += `
 
-        <div class="sol-exp-scm-section" data-section="repository">
+        <div class="sol-exp-scm-section${collapsedSections.has("repository") ? " collapsed" : ""}" data-section="repository">
 
           <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('repository')"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4"/></svg>${t("scm.repository")}<span class="sol-exp-scm-header-actions">
             <button class="sol-exp-hdr-btn" title="${t("scm.sync.fetch")}" onclick="event.stopPropagation();window.__solExpFetch()"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v10M4 8l4 4 4-4"/></svg></button>
@@ -1790,7 +1835,7 @@ async function doStage(files) {
             <button class="sol-exp-hdr-btn" title="${t("scm.sync.sync")}" onclick="event.stopPropagation();window.__solExpSync()"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8a6 6 0 0 1 10.47-4.02L14 5.5M14 8a6 6 0 0 1-10.47 4.02L2 10.5"/></svg></button>
           </span><span class="sol-exp-scm-section-count">${(status?.ahead || 0) > 0 || (status?.behind || 0) > 0 ? `↑${status?.ahead || 0} ↓${status?.behind || 0}` : ""}</span></div>
 
-          <div style="padding:4px 12px 8px 24px;flex:1;min-height:0;display:flex;flex-direction:column">
+          <div style="padding:4px 12px 8px 24px;display:flex;flex-direction:column">
 
             ${repos.map((r) => `<div class="sol-exp-repo-item ${activeRepo === r.path ? "active" : ""}" data-repo-path="${r.path.replace(/"/g, "&quot;")}" onclick="window.__solExpSelectRepo('${r.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')"><span class="sol-exp-repo-icon">⑂</span><span class="sol-exp-repo-name">${r.name}</span><span class="sol-exp-repo-branch">${r.branch}</span><span class="sol-exp-hdr-btn" title="${t("scm.remote.title")}" onclick="event.stopPropagation();window.__solExpRemotePanel()"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M6.5 9.5a3 3 0 0 0 4.24 0l2-2a3 3 0 0 0-4.24-4.24l-1 1"/><path d="M9.5 6.5a3 3 0 0 0-4.24 0l-2 2a3 3 0 0 0 4.24 4.24l1-1"/></svg></button></span><span class="sol-exp-hdr-btn" title="${t("scm.branch.title")}" onclick="event.stopPropagation();window.__solExpBranchPanel()"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="3.5" r="1.5"/><circle cx="5" cy="12.5" r="1.5"/><circle cx="11.5" cy="7" r="1.5"/><path d="M5 5v5.5M11.5 8.5c0 2.2-1.3 3-4.2 3"/></svg></button></span></div>`).join("")}<div style="font-size:12px;color:var(--dsw-alias-label-secondary);margin-bottom:6px">${t("scm.repository.branch")}</div><span class="sol-exp-branch-pill">⑂ ${status?.branch || ""}</span>
 
@@ -1798,11 +1843,19 @@ async function doStage(files) {
 
             ${branchPanelOpen ? `<div style="margin:6px 0;padding:8px;border:1px solid var(--dsw-alias-border-l2,#333);border-radius:6px;font-size:12px"><div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><b>${t("scm.branch.title")}</b><span style="flex:1"></span><button class="sol-exp-commit-detail-close" onclick="window.__solExpBranchPanel()">✕</button></div><div style="color:var(--dsw-alias-label-tertiary,#6e6e6e);margin:2px 0">${t("scm.branch.local")}</div>${branchesList.filter((b) => !b.isRemote).map((b) => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer" onclick="window.__solExpBranchCheckout('${b.name.replace(/'/g, "\\'")}')"><span style="flex:none;width:14px">${b.current ? "➤" : ""}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${b.current ? "font-weight:600;color:var(--dsw-alias-label-primary)" : ""}">${escapeHtml(b.name)}</span><span style="flex:none;font-size:10px;color:var(--dsw-alias-label-tertiary,#6e6e6e);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${b.shortHash ? b.shortHash + " " : ""}${escapeHtml((b.subject || "").substring(0, 24))}</span>${b.upstream ? `<span style="flex:none;font-size:10px;color:var(--dsw-alias-label-tertiary,#6e6e6e)">${escapeHtml(b.upstream)}</span>` : ""}<button class="sol-exp-commit-detail-btn" style="padding:1px 5px" title="${t("scm.branch.rename")}" onclick="event.stopPropagation();window.__solExpBranchRename('${b.name.replace(/'/g, "\\'")}')">✎</button>${!b.current ? `<button class="sol-exp-commit-detail-btn" style="padding:1px 5px" title="${t("scm.branch.merge")}" onclick="event.stopPropagation();window.__solExpBranchMerge('${b.name.replace(/'/g, "\\'")}')">⤵</button><button class="sol-exp-commit-detail-btn" style="padding:1px 5px" title="${t("scm.branch.publish")}" onclick="event.stopPropagation();window.__solExpBranchPublish('${b.name.replace(/'/g, "\\'")}')">↑</button><button class="sol-exp-commit-detail-btn" style="padding:1px 5px" title="${t("scm.branch.delete")}" onclick="event.stopPropagation();window.__solExpBranchDelete('${b.name.replace(/'/g, "\\'")}')">✕</button>` : ""}</div>`).join("")}<div style="color:var(--dsw-alias-label-tertiary,#6e6e6e);margin:4px 0 2px">${t("scm.branch.remote")}</div>${branchesList.filter((b) => b.isRemote).map((b) => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer" onclick="window.__solExpBranchCheckout('${b.name.replace(/'/g, "\\'")}', true)"><span style="flex:none;width:14px"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary,#969696)">${escapeHtml(b.name)}</span><span style="flex:none;font-size:10px;color:var(--dsw-alias-label-tertiary,#6e6e6e);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${b.shortHash ? b.shortHash + " " : ""}${escapeHtml((b.subject || "").substring(0, 24))}</span></div>`).join("")}${tagsList.length > 0 ? `<div style="color:var(--dsw-alias-label-tertiary,#6e6e6e);margin:4px 0 2px">${t("scm.branch.tags")}</div>${tagsList.map((tg) => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="flex:none;width:14px"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary,#969696)">${escapeHtml(tg.name)}</span><span style="flex:none;font-size:10px;color:var(--dsw-alias-label-tertiary,#6e6e6e);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${tg.commitHash ? escapeHtml((tg.subject || "").substring(0, 24)) : ""}</span></div>`).join("")}` : ""}<div style="display:flex;gap:6px;margin-top:8px"><input class="sol-exp-commit-input" style="min-height:0;height:26px;flex:1" placeholder="${t("scm.branch.name")}" value="${escapeHtml(branchName)}" oninput="window.__solExpBranchName(this.value)"/><input class="sol-exp-commit-input" style="min-height:0;height:26px;flex:1" placeholder="${t("scm.branch.from")}" value="${escapeHtml(branchFrom)}" oninput="window.__solExpBranchFrom(this.value)"/><button class="sol-exp-commit-detail-btn" onclick="window.__solExpBranchCreate()">${t("scm.branch.createBtn")}</button></div></div>` : ""}
 
-            <div style="font-size:12px;color:var(--dsw-alias-label-secondary)">${t("scm.repository.commits")}</div>
+          </div>
+
+        </div>
+
+        <div class="sol-exp-scm-section${collapsedSections.has("commits") ? " collapsed" : ""}" data-section="commits">
+
+          <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('commits')"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4"/></svg>${t("scm.repository.commits")}<span class="sol-exp-scm-header-actions"></span><span class="sol-exp-scm-section-count"></span></div>
+
+          <div style="padding:4px 12px 8px 24px;flex:1;min-height:0;display:flex;flex-direction:column">
 
             <div id="sol-exp-commit-detail" style="display:none"></div>
 
-            <div id="sol-exp-commits-list" style="margin-top:6px;font-size:12px;color:var(--dsw-alias-label-tertiary);flex:1;min-height:0;overflow-y:auto" onscroll="window.__solExpCommitsScroll(event)">Loading...</div>
+            <div id="sol-exp-commits-list" style="margin-top:6px;font-size:12px;color:var(--dsw-alias-label-tertiary);flex:1;min-height:0;overflow-y:auto" onscroll="window.__solExpCommitsScroll(event)">${commitsListHTML()}</div>
 
           </div>
 
@@ -3144,9 +3197,30 @@ async function doStage(files) {
 
 				window.__solExpToggleSection = (id) => {
 
-					const el = document.querySelector(`[data-section="${id}"]`);
+					// Query inside the active panel: a global query could hit a
+					// stale or duplicate SCM region after session/repo switches,
+					// leaving the visible section stuck open.
+					const scope = activeEl ?? document;
 
-					if (el) el.classList.toggle("collapsed");
+					const el = scope.querySelector(`[data-section="${id}"]`);
+
+					if (el) {
+
+						if (el.classList.contains("collapsed")) {
+
+							el.classList.remove("collapsed");
+
+							collapsedSections.delete(id);
+
+						} else {
+
+							el.classList.add("collapsed");
+
+							collapsedSections.add(id);
+
+						}
+
+					}
 
 				};
 
@@ -3557,6 +3631,19 @@ styleObs = new MutationObserver(syncGrid);
 					gitStatus = null;
 
 					gitChangesCount = 0;
+
+					// Invalidate any in-flight commits fetch from the previous
+					// conversation and drop the cached list so the new repo's
+					// history starts from the loading placeholder.
+					commitsSeq++;
+
+					commitsHTML = null;
+
+					commitsPage = 0;
+
+					commitsAllLoaded = false;
+
+					commitsLoading = false;
 
 					loading = root !== "";
 
