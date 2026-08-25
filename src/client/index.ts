@@ -718,6 +718,7 @@ function _notifyDiffListeners() {
 				let graphLanes = [];
 				let graphPrevLanes = [];
 				let graphDetailOpen = "";
+				let graphColorInUse = new Set();
 				let remotePanelOpen = false;
 				let branchPanelOpen = false;
 				let remotesList = [];
@@ -991,21 +992,53 @@ function resetGraph() {
   graphLanes = [];
   graphPrevLanes = [];
   graphDetailOpen = "";
+  graphColorInUse = new Set();
 }
-/** One graph row: vertical lanes + node + merge/branch diagonal lines (lane algorithm). */
+
+function allocGraphColor() {
+  for (let c = 0; c < GRAPH_COLORS.length; c++) {
+    if (!graphColorInUse.has(c)) { graphColorInUse.add(c); return c; }
+  }
+  // More active lanes than colors: wrap (rare; >8 simultaneous branches).
+  return graphColorInUse.size % GRAPH_COLORS.length;
+}
+
+function freeGraphColor(c) {
+  graphColorInUse.delete(c);
+}
+
+/** One graph row: vertical lanes + node + merge/branch transition lines (lane algorithm). */
 function renderGraphRow(commit) {
   const laneW = 14, rowH = 20, nodeR = 3;
+  const parents = commit.parents || [];
   let idx = graphLanes.findIndex((l) => l.hash === commit.hash);
-  if (idx === -1) { idx = graphLanes.length; graphLanes.push({ hash: commit.hash, color: graphLanes.length % GRAPH_COLORS.length }); }
-  const width = Math.max(laneW, graphLanes.length * laneW);
+  if (idx === -1) { idx = graphLanes.length; graphLanes.push({ hash: commit.hash, color: allocGraphColor() }); }
+  const nodeColor = graphLanes[idx].color;
+
+  // Build the next row's lanes now so merge fork lines can be drawn into them.
+  const nextLanes = graphLanes.slice();
+  nextLanes.splice(idx, 1);
+  if (parents[0]) nextLanes.splice(idx, 0, { hash: parents[0], color: nodeColor });
+  else freeGraphColor(nodeColor);
+  const forks = [];
+  for (let p = 1; p < parents.length; p++) {
+    const color = allocGraphColor();
+    forks.push({ hash: parents[p], color, x: (nextLanes.length + forks.length) * laneW + laneW / 2 });
+  }
+
+  const width = Math.max(laneW, (nextLanes.length + forks.length) * laneW);
   let svg = `<svg class="sol-exp-graph-svg" width="${width}" height="${rowH}">`;
+
+  // Lane transitions from the previous row (smooth S-curves).
   graphPrevLanes.forEach((pl, pi) => {
     const ci = graphLanes.findIndex((l) => l.hash === pl.hash);
     if (ci !== -1 && ci !== pi) {
       const x1 = pi * laneW + laneW / 2, x2 = ci * laneW + laneW / 2;
-      svg += `<line x1="${x1}" y1="0" x2="${x2}" y2="${rowH}" stroke="${GRAPH_COLORS[pl.color % GRAPH_COLORS.length]}" stroke-width="2" opacity="0.7"/>`;
+      svg += `<path d="M ${x1} 0 C ${x1} ${rowH / 2}, ${x2} ${rowH / 2}, ${x2} ${rowH}" fill="none" stroke="${GRAPH_COLORS[pl.color % GRAPH_COLORS.length]}" stroke-width="2" opacity="0.7"/>`;
     }
   });
+
+  // Vertical lanes + this commit's node.
   graphLanes.forEach((lane, i) => {
     const x = i * laneW + laneW / 2;
     const color = GRAPH_COLORS[lane.color % GRAPH_COLORS.length];
@@ -1015,18 +1048,20 @@ function renderGraphRow(commit) {
       // color (auto light/dark); pushed commits: solid lane color.
       if (commit.unpushed) svg += `<circle cx="${x}" cy="${rowH / 2}" r="${nodeR + 1}" fill="none" stroke="var(--dsw-alias-label-primary,#d4d4d4)" stroke-width="2.5"/>`;
       else svg += `<circle cx="${x}" cy="${rowH / 2}" r="${nodeR}" fill="${color}"/>`;
-      svg += `<line x1="${x}" y1="${rowH / 2 + nodeR}" x2="${x}" y2="${rowH}" stroke="${color}" stroke-width="2"/>`;
+      if (parents[0]) svg += `<line x1="${x}" y1="${rowH / 2 + nodeR}" x2="${x}" y2="${rowH}" stroke="${color}" stroke-width="2"/>`;
+      // Merge fork lines down to each additional parent's new lane.
+      for (const f of forks) {
+        svg += `<line x1="${x}" y1="${rowH / 2 + nodeR}" x2="${f.x}" y2="${rowH}" stroke="${GRAPH_COLORS[f.color % GRAPH_COLORS.length]}" stroke-width="2"/>`;
+      }
     } else {
       svg += `<line x1="${x}" y1="0" x2="${x}" y2="${rowH}" stroke="${color}" stroke-width="2" opacity="0.55"/>`;
     }
   });
+
   svg += `</svg>`;
   graphPrevLanes = graphLanes.slice();
-  const parents = commit.parents || [];
-  const laneColor = graphLanes[idx].color;
-  graphLanes.splice(idx, 1);
-  if (parents[0]) graphLanes.splice(idx, 0, { hash: parents[0], color: laneColor });
-  for (let p = 1; p < parents.length; p++) graphLanes.push({ hash: parents[p], color: graphLanes.length % GRAPH_COLORS.length });
+  graphLanes = nextLanes;
+  for (const f of forks) graphLanes.push({ hash: f.hash, color: f.color });
   return svg;
 }
 window.__solExpCommitDetail = async (hash) => {
