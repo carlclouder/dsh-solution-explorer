@@ -20,7 +20,7 @@ import * as pathModule from 'node:path'
 
 /** Plugin configuration schema (all optional with defaults). */
 export interface Config {
-  /** Default panel width in px (264-420). */
+  /** Default panel width in px (264-420; dragging may widen it further). */
   defaultWidth?: number
   /** Whether to auto-open the panel when a session activates. */
   autoOpen?: boolean
@@ -41,7 +41,7 @@ export const inject = ['webServer', 'workspaceRegistry', 'systemPrompt']
 const SECTION_ORDER = 210
 
 /** Model-facing announcement. */
-export const EXPLORER_GUIDANCE = '本机已安装 dsh-solution-explorer 插件（DSH Web GUI 的右侧源代码管理面板）：项目会话打开时，聊天区右侧出现文件浏览器与源代码管理面板。能力：文件树浏览当前工作区目录（显示 git 状态标记 M/A/D/U/R），点击文件在编辑标签中查看与编辑内容（支持保存，Ctrl+S 或保存按钮），按文件名搜索；源代码管理面板显示暂存/未暂存/未跟踪变更清单，支持暂存/取消暂存/放弃变更，提交，查看差异与图形化提交历史（可查看提交详情/Checkout），支持仓库同步（抓取/拉取/推送/同步）、分支管理（切换/新建/重命名/删除/合并/发布）、远程仓库管理（添加/删除/修改地址）、非 git 目录初始化、合并冲突检测。数据源为当前会话工作目录的真实文件系统与 git 仓库，宿主进程经 /solution-explorer/* 路由提供。用户提到「右侧面板 / 文件浏览器 / 源代码管理 / 文件树 / 资源管理器 / 变更面板」时即指本插件，请据此协作。'
+export const EXPLORER_GUIDANCE = '本机已安装 dsh-solution-explorer 插件（DSH Web GUI 的右侧源代码管理面板）：项目会话打开时，聊天区右侧出现文件浏览器与源代码管理面板。能力：文件树浏览当前工作区目录（显示 git 状态标记 M/A/D/U/R），点击文件在编辑标签中查看与编辑内容（支持保存，Ctrl+S 或保存按钮），按文件名搜索；源代码管理面板显示暂存/未暂存/未跟踪变更清单，支持暂存/取消暂存/放弃变更，提交，查看差异与图形化提交历史（可查看提交详情/Checkout），支持仓库同步（抓取/拉取/推送/同步）、分支管理（切换/新建/重命名/删除/合并/发布）、远程仓库管理（添加/删除/修改地址）、非 git 目录初始化、合并冲突检测。设置侧边栏的「资源管理器」页可调整插件个性化设置（面板宽度、自动打开、过滤模式）。数据源为当前会话工作目录的真实文件系统与 git 仓库，宿主进程经 /solution-explorer/* 路由提供。用户提到「右侧面板 / 文件浏览器 / 源代码管理 / 文件树 / 资源管理器 / 变更面板」时即指本插件，请据此协作。'
 
 // ─── Git helpers ────────────────────────────────────────────────────────────
 
@@ -147,8 +147,10 @@ function getGitStatus(root: string): GitEnvelope {
         untracked.push({ path, status: '?' })
         continue
       }
-      // Merge conflict states: UU AA DD AU UA DU UD — surfaced separately.
-      if (st !== ' ' && us !== ' ') {
+      // Merge conflict states are exactly UU AA DD AU UA DU UD — a plain
+      // two-column entry like MM (partially staged) must NOT be treated as a
+      // conflict, it stays staged + unstaged below.
+      if (st === 'U' || us === 'U' || (st === 'A' && us === 'A') || (st === 'D' && us === 'D')) {
         conflicts.push({ path, status: st + us, oldPath })
         continue
       }
@@ -219,7 +221,22 @@ function parseQuery(url: URL): Record<string, string> {
 
 // ─── Tree & search ──────────────────────────────────────────────────────────
 
-async function buildFileTree(root: string, relativePath: string): Promise<FileTreeNode> {
+/** True when a file name matches any configured filter pattern (glob-ish). */
+function matchesFilter(name: string, patterns: string[] | undefined): boolean {
+  if (!patterns || patterns.length === 0) return false
+  return patterns.some((p) => {
+    const trimmed = p.trim()
+    if (trimmed === '') return false
+    // * matches any run of chars, ? a single char; otherwise substring match.
+    if (trimmed.includes('*') || trimmed.includes('?')) {
+      const re = new RegExp('^' + trimmed.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$')
+      return re.test(name)
+    }
+    return name.includes(trimmed)
+  })
+}
+
+async function buildFileTree(root: string, relativePath: string, filterPatterns: string[] = []): Promise<FileTreeNode> {
   const fullPath = relativePath ? pathModule.join(root, relativePath) : root
   const name = relativePath ? pathModule.basename(relativePath) : pathModule.basename(root)
   const stat = await fsp.stat(fullPath)
@@ -231,7 +248,7 @@ async function buildFileTree(root: string, relativePath: string): Promise<FileTr
   if (stat.isDirectory()) {
     const entries = await fsp.readdir(fullPath, { withFileTypes: true })
     const sorted = entries
-      .filter(e => !e.name.startsWith('.') && e.name !== 'node_modules')
+      .filter(e => !e.name.startsWith('.') && e.name !== 'node_modules' && !matchesFilter(e.name, filterPatterns))
       .sort((a, b) => {
         if (a.isDirectory() && !b.isDirectory()) return -1
         if (!a.isDirectory() && b.isDirectory()) return 1
@@ -241,7 +258,7 @@ async function buildFileTree(root: string, relativePath: string): Promise<FileTr
     for (const entry of sorted) {
       const childRel = relativePath ? pathModule.join(relativePath, entry.name) : entry.name
       try {
-        node.children.push(await buildFileTree(root, childRel))
+        node.children.push(await buildFileTree(root, childRel, filterPatterns))
       } catch { /* skip unreadable */ }
     }
   }
@@ -373,6 +390,27 @@ async function searchFiles(root: string, query: string, maxResults = 50): Promis
 // ─── Plugin apply ───────────────────────────────────────────────────────────
 
 export function apply(ctx: Context, config: Config = {}): void {
+  // Settings-page persistence: the `settings` service (when mounted) must be
+  // registered before reads/writes work — an unregistered namespace makes get()
+  // return undefined and update() throw. Registering with the bundle row as the
+  // `base` layer resolves: schema defaults → bundle config → user document.
+  const settings = ctx.get('settings') as
+    | {
+        register<T>(ns: string, schema: z<Config>, options?: { base?: Partial<T> }): {
+          get(): T
+          update(patch: object): Promise<void>
+        }
+      }
+    | undefined
+  let settingsScope: { get(): Config; update(patch: object): Promise<void> } | undefined
+  let effectiveConfig: Config = { ...config }
+  if (settings) {
+    try {
+      settingsScope = settings.register('solution-explorer', Config, { base: config })
+      effectiveConfig = settingsScope.get()
+    } catch { /* unregistered or invalid stored section — keep bundle defaults */ }
+  }
+
   ctx.effect(() => ctx.systemPrompt.section({
     name: 'plugin:solution-explorer',
     order: SECTION_ORDER,
@@ -392,7 +430,7 @@ export function apply(ctx: Context, config: Config = {}): void {
             const root = query.root || ''
             if (!root) { json(res, { ok: false, error: { message: 'root required' } }); return }
             try {
-              const tree = await buildFileTree(root, '')
+              const tree = await buildFileTree(root, '', effectiveConfig.filterPatterns)
               // Annotate each file with its git status letter and each directory
               // with a "modified" marker (VS Code explorer style).
               const status = getGitStatus(root)
@@ -401,6 +439,10 @@ export function apply(ctx: Context, config: Config = {}): void {
             } catch (err) {
               json(res, { ok: false, error: { message: err instanceof Error ? err.message : String(err) } })
             }
+            return
+          }
+          case '/solution-explorer/settings': {
+            json(res, { ok: true, value: effectiveConfig })
             return
           }
           case '/solution-explorer/read': {
@@ -663,6 +705,19 @@ export function apply(ctx: Context, config: Config = {}): void {
         const files = Array.isArray(payload.files) ? payload.files.filter((f): f is string => typeof f === 'string') : []
 
         switch (pathname) {
+          case '/solution-explorer/settings': {
+            const next: Config = { ...effectiveConfig }
+            if (typeof payload.defaultWidth === 'number' && payload.defaultWidth >= 264 && payload.defaultWidth <= 420) next.defaultWidth = payload.defaultWidth
+            if (typeof payload.autoOpen === 'boolean') next.autoOpen = payload.autoOpen
+            if (Array.isArray(payload.filterPatterns)) next.filterPatterns = payload.filterPatterns.filter((x): x is string => typeof x === 'string')
+            const parsed = Config(next)
+            effectiveConfig = parsed
+            if (settingsScope) {
+              try { await settingsScope.update(parsed) } catch { /* persistence failure is non-fatal */ }
+            }
+            json(res, { ok: true, value: parsed })
+            return
+          }
           case '/solution-explorer/git-stage': {
             if (!root || files.length === 0) { json(res, { ok: false, error: { message: 'root and files required' } }); return }
             const result = git(['add', '--', ...files], root)

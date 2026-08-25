@@ -34,7 +34,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
   }
 
-  interface SlotMap {}
+  interface SlotMap {
+    'settings.section': {
+      kind: 'list'
+      scope: 'root'
+      owner: { close: () => void }
+    }
+  }
 
 }
 
@@ -404,6 +410,38 @@ declare global {
 .sol-exp-repo-icon { flex:none; color:var(--dsw-alias-state-business-primary,#58a6ff); }
 .sol-exp-repo-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--dsw-alias-label-primary,#d4d4d4); }
 .sol-exp-repo-branch { flex:none; font-size:11px; color:var(--dsw-alias-label-tertiary,#6e6e6e); }
+
+/* Settings page ("资源管理器" section) — flat grouped cards matching the
+   native notification settings page style. */
+.sol-set-root { display: flex; flex-direction: column; gap: 12px; max-width: 760px; color: var(--dsw-alias-label-primary); padding: 0 2px; }
+.sol-set-heading { margin: 0; font-size: 18px; font-weight: 600; }
+.sol-set-intro { margin: 0; font-size: 13px; color: var(--dsw-alias-label-tertiary); }
+.sol-set-card { border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; background: var(--dsw-alias-bg-layer-3); }
+.sol-set-card-head { padding: 14px 16px 0; display: flex; flex-direction: column; gap: 4px; }
+.sol-set-name { font-size: 15px; font-weight: 600; line-height: 1.4; color: var(--dsw-alias-label-primary); }
+.sol-set-desc { font-size: 13px; line-height: 1.5; color: var(--dsw-alias-label-tertiary); }
+.sol-set-card-body { padding: 4px 16px 8px; }
+.sol-set-field { display: flex; flex-direction: column; gap: 6px; padding: 12px 0; }
+.sol-set-field + .sol-set-field { border-top: 1px solid var(--dsw-alias-border-l2); }
+.sol-set-label { font-size: 13px; font-weight: 500; line-height: 1.5; color: var(--dsw-alias-label-primary); }
+.sol-set-hint { margin: 0; font-size: 12px; line-height: 1.5; color: var(--dsw-alias-label-tertiary); }
+.sol-set-input { height: 34px; padding: 0 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-3); font: inherit; font-size: 13px; line-height: 1.5; color: var(--dsw-alias-label-primary); box-sizing: border-box; }
+.sol-set-input:focus-visible { outline: none; border-color: var(--dsw-alias-brand-primary); }
+.sol-set-input:disabled { opacity: .5; cursor: default; }
+.sol-set-input[type='number'] { width: 120px; }
+.sol-set-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+.sol-set-discard, .sol-set-save { appearance: none; border: 1px solid transparent; border-radius: 8px; padding: 5px 14px; font: inherit; font-size: 13px; line-height: 1.5; cursor: pointer; }
+.sol-set-discard { border-color: var(--dsw-alias-border-l2); background: none; color: var(--dsw-alias-label-secondary); }
+.sol-set-discard:hover { color: var(--dsw-alias-label-primary); border-color: var(--dsw-alias-label-dimmed); }
+.sol-set-save { background: var(--dsw-alias-label-primary); color: var(--dsw-alias-bg-layer-3); }
+.sol-set-save:hover { opacity: .9; }
+.sol-set-saved { margin-right: auto; font-size: 12px; line-height: 1.5; color: var(--dsw-alias-state-success-primary); }
+.sol-set-sw { position: relative; display: inline-block; width: 36px; height: 20px; vertical-align: middle; cursor: pointer; }
+.sol-set-sw input { opacity: 0; width: 0; height: 0; position: absolute; }
+.sol-set-sw-track { position: absolute; inset: 0; background: var(--dsw-alias-bg-layer-2); border-radius: 10px; transition: background .18s; }
+.sol-set-sw input:checked + .sol-set-sw-track { background: var(--dsw-alias-button-info-fill); }
+.sol-set-sw-thumb { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .18s; }
+.sol-set-sw input:checked + .sol-set-sw-track .sol-set-sw-thumb { left: 18px; }
 `;
 
 		export const inject = [
@@ -2632,13 +2670,43 @@ async function doStage(files) {
 				document.addEventListener("pointerup", onUp);
 				};
 
-				const PANEL_WIDTH = 280;
+				const PANEL_WIDTH_DEFAULT = 280;
+
+				let PANEL_WIDTH = PANEL_WIDTH_DEFAULT;
+
+				let panelAutoOpen = true;
+
+				let settingsLoaded = false;
 
 				const PANEL_MIN = 264;
 
-				const PANEL_MAX = 420;
+				const PANEL_MAX = 560;
 
 				let panelWidth = 0;
+
+				let panelDragged = false;
+
+				// Pull the user-editable panel config (settings page). Settings
+				// are STARTUP DEFAULTS only: they decide the initial width when
+				// the panel first appears. After that the drag owns the width —
+				// nothing here follows the sidebar or rewrites a dragged value.
+				const applySettings = () => {
+					fetch("/solution-explorer/settings").then((r) => r.json()).then((res) => {
+						if (res && res.ok && res.value) {
+							if (typeof res.value.defaultWidth === "number" && res.value.defaultWidth >= PANEL_MIN && res.value.defaultWidth <= PANEL_MAX) PANEL_WIDTH = res.value.defaultWidth;
+							if (typeof res.value.autoOpen === "boolean") panelAutoOpen = res.value.autoOpen;
+							settingsLoaded = true;
+							// First-time defaults only — never after a drag.
+							if (root !== "" && !panelDragged && panelFrame !== null) {
+								panelWidth = panelAutoOpen ? PANEL_WIDTH : 0;
+								applyGrid();
+								loadTree();
+							}
+						}
+					}).catch(() => {});
+				};
+				applySettings();
+				window.addEventListener("sol-exp-settings-saved", applySettings);
 				let scmSplit = 55;
 
 				let panelFrame = null;
@@ -2694,7 +2762,7 @@ async function doStage(files) {
 
 				function trackPx(track) {
 
-					const m = /^(-?[\\d.]+)px$/.exec(track.trim());
+					const m = /^(-?[\\d.]+)px$/.exec(String(track ?? "").trim());
 
 					return m === null ? 0 : Number(m[1]);
 
@@ -2807,6 +2875,10 @@ function mountColumn() {
 
 							panelWidth = clampPanelWidth(startWidth - dx);
 
+							// A drag owns the width: settings never rewrite it
+							// again until the next software start.
+							panelDragged = true;
+
 							applyGrid();
 
 						};
@@ -2854,6 +2926,8 @@ styleObs = new MutationObserver(syncGrid);
 
 					});
 
+				
+
 					sizeObs = new ResizeObserver(() => {
 
 						applyGrid();
@@ -2875,6 +2949,11 @@ styleObs = new MutationObserver(syncGrid);
 					}
 
 					applyGrid();
+
+					// Panel is mounted: re-apply the persisted settings so
+					// autoOpen/width/symmetry land even if the settings fetch
+					// resolved before the frame existed.
+					applySettings();
 
 				}
 
@@ -2920,7 +2999,19 @@ styleObs = new MutationObserver(syncGrid);
 					// to its default (a "wrong direction" jump).
 					if (newRoot === root) return;
 
-					panelWidth = newRoot !== "" ? PANEL_WIDTH : 0;
+					if (newRoot !== "") {
+						// Settings have not loaded yet: do not flash the panel
+						// open with defaults; mountColumn re-applies once ready.
+						if (!settingsLoaded) {
+							panelWidth = 0;
+						} else if (!panelDragged) {
+							panelWidth = panelAutoOpen ? PANEL_WIDTH : 0;
+						}
+						// panelDragged: keep the dragged width across session
+						// switches — the user's drag owns it until restart.
+					} else {
+						panelWidth = 0;
+					}
 
 					if (panelFrame !== null) applyGrid();
 
@@ -3308,6 +3399,8 @@ styleObs = new MutationObserver(syncGrid);
 
 					document.removeEventListener("drop", dragGuard);
 
+					window.removeEventListener("sol-exp-settings-saved", applySettings);
+
 				};
 
 			}, "dsh-solution-explorer: wiring");
@@ -3339,6 +3432,24 @@ styleObs = new MutationObserver(syncGrid);
 				return () => {};
 
 			}, "dsh-solution-explorer: editor view");
+
+			ctx.effect(() => {
+
+				ctx.slots.inject("settings.section", () => ctx.slots.register({
+
+					name: "settings.section",
+
+					id: "explorer",
+
+					order: 30,
+
+					label: () => t("settings.explorer"),
+
+				}, SettingsPage));
+
+				return () => {};
+
+			}, "dsh-solution-explorer: settings page");
 
 		}
 
@@ -4444,6 +4555,115 @@ spellCheck: false
 				color: "var(--dsw-alias-label-tertiary)"
 
 			} }, h("span", null, t("editor.saveHint"))));
+
+		}
+
+		function SettingsPage() {
+
+			const [width, setWidth] = useState("280");
+
+			const [autoOpen, setAutoOpen] = useState(true);
+
+			const [patterns, setPatterns] = useState("");
+
+			const [saved, setSaved] = useState(false);
+
+			useEffect(() => {
+
+				let alive = true;
+
+				fetch("/solution-explorer/settings").then((r) => r.json()).then((res) => {
+
+					if (!alive || !res || !res.ok || !res.value) return;
+
+					setWidth(String(res.value.defaultWidth));
+
+					setAutoOpen(!!res.value.autoOpen);
+
+					setPatterns((res.value.filterPatterns || []).join(", "));
+
+				}).catch(() => {});
+
+				return () => { alive = false };
+
+			}, []);
+
+			const save = () => {
+
+				const num = parseInt(width, 10);
+
+				fetch("/solution-explorer/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+
+					defaultWidth: Number.isFinite(num) ? Math.min(420, Math.max(264, num)) : 280,
+
+					autoOpen,
+
+					filterPatterns: patterns.split(",").map((s) => s.trim()).filter((s) => s.length > 0),
+
+				}) }).then((r) => r.json()).then((res) => {
+
+					if (res && res.ok) {
+						setSaved(true);
+						window.dispatchEvent(new Event("sol-exp-settings-saved"));
+					}
+
+				}).catch(() => {});
+
+			};
+
+			const reset = () => { setWidth("280"); setAutoOpen(true); setPatterns(""); };
+
+			const field = (label, hint, control) => h("div", { className: "sol-set-field" },
+
+				h("div", { className: "sol-set-label" }, label),
+
+				hint ? h("p", { className: "sol-set-hint" }, hint) : null,
+
+				control);
+
+			const card = (title, desc, ...children) => h("div", { className: "sol-set-card" },
+
+				h("div", { className: "sol-set-card-head" },
+
+					h("div", { className: "sol-set-name" }, title),
+
+					h("div", { className: "sol-set-desc" }, desc)),
+
+				h("div", { className: "sol-set-card-body" }, children));
+
+			return h("div", { className: "sol-set-root" },
+
+				h("h2", { className: "sol-set-heading" }, t("settings.explorer")),
+
+				h("p", { className: "sol-set-intro" }, t("settings.intro")),
+
+				card(t("settings.group.appearance"), t("settings.group.appearance.desc"),
+
+					field(t("settings.width.label"), t("settings.width.hint"),
+
+						h("input", { className: "sol-set-input", type: "number", min: 264, max: 420, value: width, onChange: (e) => setWidth(e.target.value) })),
+
+					field(t("settings.autoOpen.label"), t("settings.autoOpen.hint"),
+
+						h("label", { className: "sol-set-sw" },
+
+							h("input", { type: "checkbox", checked: autoOpen, onChange: (e) => setAutoOpen(e.target.checked) }),
+
+							h("span", { className: "sol-set-sw-track" }, h("span", { className: "sol-set-sw-thumb" }))))),
+
+				card(t("settings.group.tree"), t("settings.group.tree.desc"),
+
+					field(t("settings.patterns.label"), t("settings.patterns.hint"),
+
+						h("input", { className: "sol-set-input", type: "text", placeholder: "*.log, temp/", value: patterns, onChange: (e) => setPatterns(e.target.value) }))),
+
+				h("div", { className: "sol-set-actions" },
+
+					saved ? h("span", { className: "sol-set-saved" }, t("settings.saved")) : null,
+
+					h("button", { className: "sol-set-discard", type: "button", onClick: reset }, t("settings.reset")),
+
+					h("button", { className: "sol-set-save", type: "button", onClick: save }, t("settings.save"))));
 
 		}
 

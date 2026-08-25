@@ -129,6 +129,24 @@ const zh = {
   'scm.merge.changes': '合并冲突',
   'scm.merge.none': '没有冲突',
   'scm.branch.tags': '标记',
+
+  // Settings page
+  'settings.explorer': '资源管理器',
+  'settings.width.label': '面板宽度',
+  'settings.width.hint': '264–420px，默认 280（拖拽可加宽到 560）',
+  'settings.autoOpen.label': '自动打开',
+  'settings.autoOpen.hint': '会话激活时自动展开右侧面板',
+  'settings.patterns.label': '过滤模式',
+  'settings.patterns.hint': '从文件树隐藏的名称模式，逗号分隔',
+  'settings.reset': '重置',
+  'settings.save': '保存',
+  'settings.saved': '✓ 已保存',
+  'settings.desc': '右侧边栏插件：文件浏览器 + 源代码管理 + 编辑器。',
+  'settings.intro': '配置 dsh-solution-explorer 的个性化设置，变更即时生效。',
+  'settings.group.appearance': '外观',
+  'settings.group.appearance.desc': '右侧面板的宽度与自动打开行为。',
+  'settings.group.tree': '文件树',
+  'settings.group.tree.desc': '控制文件树中显示的内容。',
 }
 
 const en: Record<SolutionExplorerKey, string> = {
@@ -245,6 +263,24 @@ const en: Record<SolutionExplorerKey, string> = {
   'scm.merge.changes': 'Merge Changes',
   'scm.merge.none': 'No conflicts',
   'scm.branch.tags': 'Tags',
+
+  // Settings page
+  'settings.explorer': 'Explorer',
+  'settings.width.label': 'Panel width',
+  'settings.width.hint': '264–420px, default 280 (drag widens up to 560)',
+  'settings.autoOpen.label': 'Auto-open',
+  'settings.autoOpen.hint': 'Auto-expand the right panel when a session activates',
+  'settings.patterns.label': 'Filter patterns',
+  'settings.patterns.hint': 'Name patterns to hide from the file tree, comma-separated',
+  'settings.reset': 'Reset',
+  'settings.save': 'Save',
+  'settings.saved': '✓ Saved',
+  'settings.desc': 'Right-sidebar plugin: file explorer + source control + editor.',
+  'settings.intro': 'Configure dsh-solution-explorer personal preferences; changes apply immediately.',
+  'settings.group.appearance': 'Appearance',
+  'settings.group.appearance.desc': 'Right panel width and auto-open behavior.',
+  'settings.group.tree': 'File tree',
+  'settings.group.tree.desc': 'Controls what the file tree shows.',
 }
 
 export const dictionaries = { zh, en }
