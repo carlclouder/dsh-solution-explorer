@@ -1,14 +1,16 @@
 # dsh-solution-explorer
 
-![dsh-solution-explorer banner](assets/banner.png)
+![dsh-solution-explorer demo](demo.gif)
 
 [English](README.md) | [中文](README.zh.md)
 
 [![npm](https://img.shields.io/npm/v/dsh-solution-explorer)](https://www.npmjs.com/package/dsh-solution-explorer)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-solution-explorer)](https://www.npmjs.com/package/dsh-solution-explorer)
 [![GitHub stars](https://img.shields.io/github/stars/xiaoksio/dsh-solution-explorer)](https://github.com/xiaoksio/dsh-solution-explorer)
+[![awesome](https://awesome.re/mentioned-badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
+[![license](https://img.shields.io/github/license/xiaoksio/dsh-solution-explorer)](LICENSE)
 
-DSH Web GUI 右侧边栏插件：VS Code 风格文件浏览器 + 源代码管理（git 状态、暂存/取消暂存/放弃变更、提交、差异）+ 带保存功能的文本编辑器，全部位于三列布局右侧的独立列中。
+DSH Web GUI 右侧边栏插件：VS Code 风格文件浏览器加源代码管理（git 状态、暂存/取消暂存/放弃变更、提交、差异、提交图形、同步抓取/拉取/推送、分支/远程管理、Git 初始化、多仓库切换、文件状态着色、文件类型图标、图片预览），含可编辑全文差异视图、语法高亮编辑器（15 种语言）、文件操作（新建/移动/复制/删除）与保存。
 
 ## 功能
 
@@ -16,7 +18,8 @@ DSH Web GUI 右侧边栏插件：VS Code 风格文件浏览器 + 源代码管理
 - **源代码管理** — 暂存/未暂存/未跟踪变更清单，支持逐个或全部暂存、取消暂存、放弃变更，带提交信息的提交与分支信息。**差异视图**：全文左右对照，右侧可逐行编辑（回车插行/合并行、NBSP 占位）、Ctrl+S 保存。**提交图形（Commit Graph）**：SVG 分支线/合并线历史视图，点击查看提交详情（作者/日期/父提交/变更文件），支持 Checkout。**仓库同步**：抓取/拉取/推送/同步（拉取+推送），显示 ahead/behind 计数，远程写操作均二次确认。**分支管理**：切换/新建/重命名/删除/合并/发布。**远程仓库**：添加/删除/修改地址。**Git 初始化**：普通目录一键初始化。**合并冲突**：pull/merge 冲突（UU/AA/DD…）自动检测并列出，手动解决。**多仓库支持**：自动发现工作区下多个 git 仓库，可点击切换，SCM 面板跟随选中仓库。**上下分栏**：更改区与存储库区可拖拽调整占比，历史列表填满底部。批量操作位于分区头，放弃所有需二次确认。
 - **语法高亮** — 编辑器与差异视图均支持 15 种语言（TS/JS/Python/JSON/Markdown/…）的语法着色（GitHub Dark 主题），编辑器输入实时高亮，性能轻量。
 - **文件搜索** — 按文件名实时搜索整个工作区。
-- **文件编辑器** — 在会话视图的"编辑"页签打开任意文本文件，编辑后保存（按钮或 Ctrl+S）；二进制文件会被识别并拒绝打开，避免损坏。
+- **文件编辑器** — 在会话视图的"编辑"页签打开任意文本文件，编辑后保存（按钮或 Ctrl+S）；图片在编辑器内以缩放/平移预览打开，其余二进制文件会被识别并拒绝打开，避免损坏。
+- **折叠窄条（rail）** — 整个面板可收起为一条窄图标栏（展开面板、文件浏览器、搜索、源代码管理）；源代码管理图标带实时变更计数徽标，点击任一图标即在对应页签重新展开面板，视觉与原生侧边栏一致。
 - **文件操作** — 右键菜单支持新建文件/文件夹、删除（确认对话框）、复制/剪切/粘贴、复制相对/绝对路径；支持树内拖拽移动、从系统拖入文件、多选批量操作。
 - **国际化** — 中英双语，跟随浏览器语言。
 - **深色主题** — 与 DSH Web UI 主题 token 一致。
@@ -29,12 +32,9 @@ DSH Web GUI 右侧边栏插件：VS Code 风格文件浏览器 + 源代码管理
 
 ## 安装
 
-### 本地目录安装
+### 从 dsh-market 安装（GUI）
 
-```sh
-# 指向本仓库；包声明了 dsh.bundle manifest，会被作为 web profile 的激活 bundle 层加入
-dsh plugin --profile web add /path/to/dsh-solution-explorer
-```
+在 DSH Web UI 中打开插件市场，搜索"solution-explorer"，点击安装。
 
 ### 从 npm 安装
 
@@ -42,10 +42,10 @@ dsh plugin --profile web add /path/to/dsh-solution-explorer
 dsh plugin --profile web add dsh-solution-explorer
 ```
 
-### 从 GitHub Release 安装（预构建 tarball）
+### 本地目录安装
 
 ```sh
-dsh plugin --profile web add https://github.com/xiaoksio/dsh-solution-explorer/releases/latest/download/dsh-solution-explorer-0.2.1.tgz
+dsh plugin --profile web add /path/to/dsh-solution-explorer
 ```
 
 安装后刷新 Web UI。会话打开工作区后，资源管理器面板会作为独立右列出现。
@@ -56,9 +56,10 @@ dsh plugin --profile web add https://github.com/xiaoksio/dsh-solution-explorer/r
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `defaultWidth` | `number` | `280` | 面板宽度（px），限制在 264–420。 |
+| `defaultWidth` | `number` | `280` | 面板宽度（px），限制在 264–560。 |
 | `autoOpen` | `boolean` | `true` | 会话激活时自动打开面板。 |
 | `filterPatterns` | `string[]` | `[]` | 从文件树中隐藏的名称模式。 |
+| `showHidden` | `boolean` | `false` | 在文件树中显示点前缀（隐藏）文件。 |
 
 ## 开发
 

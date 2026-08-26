@@ -1,17 +1,21 @@
 # dsh-solution-explorer
 
-![dsh-solution-explorer banner](assets/banner.png)
+![dsh-solution-explorer demo](demo.gif)
 
 [English](README.md) | [中文](README.zh.md)
 
 [![npm](https://img.shields.io/npm/v/dsh-solution-explorer)](https://www.npmjs.com/package/dsh-solution-explorer)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-solution-explorer)](https://www.npmjs.com/package/dsh-solution-explorer)
 [![GitHub stars](https://img.shields.io/github/stars/xiaoksio/dsh-solution-explorer)](https://github.com/xiaoksio/dsh-solution-explorer)
+[![awesome](https://awesome.re/mentioned-badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
+[![license](https://img.shields.io/github/license/xiaoksio/dsh-solution-explorer)](LICENSE)
 
 Right-sidebar plugin for the DSH Web GUI: a VS Code-style file explorer plus
-source control management (git status, stage/unstage/discard, commit, diff) and
-a text editor with save, all in a dedicated right column of the three-column
-layout.
+source control (git status, stage/unstage/discard, commit, diff, commit graph,
+sync fetch/pull/push, branch/remote management, git init, multi-repo switch,
+color-coded file status, file-type icons, image preview) with an editable
+full-file diff view, a syntax-highlighted editor (15 languages), file operations
+(new/move/copy/delete), and save.
 
 ## Features
 
@@ -43,8 +47,13 @@ layout.
   re-highlights live while typing, lightweight.
 - **File Search** — live name search across the workspace.
 - **File Editor** — open any text file in an "Edit" tab of the conversation
-  view, edit, and save (button or Ctrl+S); binary files are detected and
-  refused instead of corrupted.
+  view, edit, and save (button or Ctrl+S); images open in an in-editor
+  preview with zoom/pan, and other binary files are detected and refused
+  instead of corrupted.
+- **Collapsible rail** — collapse the whole panel into a narrow icon rail
+  (expand panel, explorer, search, source control). The source-control icon
+  shows a live change-count badge; clicking an icon reopens the panel on that
+  tab, matching the native sidebar's look.
 - **File operations** — context menu with new file/folder, delete (confirm
   dialog), copy / cut / paste, copy relative / absolute path; drag files within
   the tree, drag files in from the OS, multi-select bulk actions.
@@ -59,13 +68,10 @@ layout.
 
 ## Installation
 
-### From a local checkout
+### From dsh-market (GUI)
 
-```sh
-# Point dsh at this checkout; the package declares a dsh.bundle manifest so it
-# is added as an active bundle layer of the web profile.
-dsh plugin --profile web add /path/to/dsh-solution-explorer
-```
+Open the marketplace in the DSH Web UI, search for "solution-explorer", and
+click install.
 
 ### From npm
 
@@ -73,10 +79,10 @@ dsh plugin --profile web add /path/to/dsh-solution-explorer
 dsh plugin --profile web add dsh-solution-explorer
 ```
 
-### From a GitHub Release (prebuilt tarball)
+### From a local checkout
 
 ```sh
-dsh plugin --profile web add https://github.com/xiaoksio/dsh-solution-explorer/releases/latest/download/dsh-solution-explorer-0.2.1.tgz
+dsh plugin --profile web add /path/to/dsh-solution-explorer
 ```
 
 After installing, reload the Web UI. The explorer panel appears as its own right
@@ -89,9 +95,10 @@ The plugin accepts an optional `config` in the bundle row
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `defaultWidth` | `number` | `280` | Panel width in px, clamped to 264–420. |
+| `defaultWidth` | `number` | `280` | Panel width in px, clamped to 264–560. |
 | `autoOpen` | `boolean` | `true` | Auto-open the panel when a session activates. |
 | `filterPatterns` | `string[]` | `[]` | Name patterns to hide from the file tree. |
+| `showHidden` | `boolean` | `false` | Show dot-prefixed (hidden) files in the tree. |
 
 ## Development
 
