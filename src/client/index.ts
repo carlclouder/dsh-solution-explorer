@@ -119,6 +119,10 @@ declare global {
 
     __solExpToggleSection?: (id: string) => void
 
+    __solExpTogglePanel?: () => void
+
+    __solExpRailOpen?: (tab: string) => void
+
     __solExpOpenFile?: (path: string) => Promise<void>
 
     __solExpSaveFile?: () => Promise<void>
@@ -319,6 +323,19 @@ declare global {
 .sol-exp-activity-btn:hover { color:var(--dsw-alias-label-primary,#d4d4d4); background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.06)); }
 
 .sol-exp-activity-btn.active { color:var(--dsw-alias-label-primary,#d4d4d4); background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.06)); }
+
+.sol-exp-panel-rail { flex:1; min-height:0; display:flex; flex-direction:column; align-items:center; padding:18px 10px 6px; box-sizing:border-box; background:var(--dsw-specific-sidebar-fill); }
+/* All rail controls (expand toggle + feature icons) sit centered on the same
+   vertical axis so the folded rail reads as one symmetric column. */
+.sol-exp-rail-btn { flex:none; align-self:center; width:36px; height:36px; display:flex; align-items:center; justify-content:center; border:none; border-radius:6px; background:transparent; color:var(--dsw-alias-label-tertiary); cursor:pointer; padding:0; margin-bottom:8px; }
+.sol-exp-rail-btn:hover { color:var(--dsw-alias-label-primary,#d4d4d4); background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.06)); }
+.sol-exp-rail-icon { position:relative; flex:none; align-self:center; width:36px; height:36px; display:flex; align-items:center; justify-content:center; border:none; border-radius:6px; background:transparent; color:var(--dsw-alias-label-tertiary); cursor:pointer; padding:0; }
+.sol-exp-rail-icon:hover { color:var(--dsw-alias-label-primary,#d4d4d4); background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.06)); }
+/* Change-count badge: tucked into the icon's bottom-right corner and
+   overlapping it (VS Code style), so icon+badge read as one unit instead
+   of a floating pill. Absolute positioning keeps it out of the icon's flex
+   row, so counts of any width can't squeeze the icon. */
+.sol-exp-activity-badge { position:absolute; bottom:2px; right:2px; min-width:13px; height:13px; padding:0 3px; border-radius:7px; box-sizing:border-box; background:var(--dsw-alias-button-info-fill,#3964fe); color:#fff; font-size:8px; font-weight:600; line-height:13px; text-align:center; white-space:nowrap; z-index:1; pointer-events:none; }
 
 .sol-exp-resize-handle { position:absolute; top:0; bottom:0; width:8px; margin-left:-4px; cursor:col-resize; z-index:2; touch-action:none; background:transparent; }
 .sol-exp-resize-handle::after { content:''; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:3px; height:44px; border-radius:2px; background:var(--dsw-alias-button-floating-fill,#0078d4); opacity:0; transition:opacity .12s ease; }
@@ -779,6 +796,22 @@ function _notifyDiffListeners() {
 					if (!activeEl) return;
 
 					setLanguage(document.documentElement.lang?.startsWith("zh") ? "zh" : "en");
+
+					// Folded: render only the compact rail — the expand control
+					// plus the three feature icons — instead of the activity
+					// bar + body. The shell column keeps its border, so the
+					// rail reads as a sibling of the native collapsed sidebar.
+					if (panelCollapsed) {
+
+						// Rail expand control mirrors the native sidebar rail: a
+						// 16px panel-left glyph (same Figma source the shell
+						// swaps in on rail hover), so the folded panel reads as
+						// a sibling of the native collapsed rail.
+						activeEl.innerHTML = `<div class="sol-exp-panel sol-exp-panel-rail"><button class="sol-exp-rail-btn" title="${document.documentElement.lang?.startsWith("zh") ? "展开面板" : "Expand panel"}" onclick="window.__solExpTogglePanel()"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" clipRule="evenodd" d="M9.67272 0.522841C10.8339 0.522841 11.76 0.522714 12.4963 0.602493C13.2453 0.683657 13.8789 0.854248 14.4264 1.25197C14.7504 1.48739 15.0355 1.77247 15.2709 2.0965C15.6686 2.64394 15.8392 3.27758 15.9204 4.02655C16.0002 4.7629 16 5.68895 16 6.85014V9.14986C16 10.3111 16.0002 11.2371 15.9204 11.9735C15.8392 12.7224 15.6686 13.3561 15.2709 13.9035C15.0355 14.2275 14.7504 14.5126 14.4264 14.748C13.8789 15.1458 13.2453 15.3163 12.4963 15.3975C11.76 15.4773 10.8339 15.4772 9.67272 15.4772H6.3273C5.16611 15.4772 4.24006 15.4773 3.50371 15.3975C2.75474 15.3163 2.1211 15.1458 1.57366 14.748C1.24963 14.5126 0.964549 14.2275 0.729131 13.9035C0.331407 13.3561 0.160817 12.7224 0.0796529 11.9735C-0.000126137 11.2371 1.25338e-09 10.3111 1.25338e-09 9.14986V6.85014C1.25329e-09 5.68895 -0.000126137 4.7629 0.0796529 4.02655C0.160817 3.27758 0.331407 2.64394 0.729131 2.0965C0.964549 1.77247 1.24963 1.48739 1.57366 1.25197C2.1211 0.854248 2.75474 0.683657 3.50371 0.602493C4.24006 0.522714 5.16611 0.522841 6.3273 0.522841H9.67272ZM5.54303 1.88715V14.1118C5.78636 14.1128 6.04709 14.1169 6.3273 14.1169H9.67272C10.8639 14.1169 11.7032 14.1164 12.3493 14.0465C12.9824 13.9779 13.3497 13.8494 13.6268 13.6482C13.8354 13.4966 14.0195 13.3125 14.1711 13.1039C14.3723 12.8268 14.5007 12.4595 14.5693 11.8264C14.6393 11.1803 14.6398 10.341 14.6398 9.14986V6.85014C14.6398 5.65896 14.6393 4.81967 14.5693 4.1736C14.5007 3.54048 14.3723 3.17318 14.1711 2.89609C14.0195 2.68747 13.8354 2.50337 13.6268 2.35179C13.3497 2.1506 12.9824 2.02212 12.3493 1.95353C11.7032 1.88358 10.8639 1.88307 9.67272 1.88307H6.3273C6.04709 1.88307 5.78636 1.8862 5.54303 1.88715ZM4.1828 1.91166C3.99125 1.9216 3.8148 1.93577 3.65076 1.95353C3.01764 2.02212 2.65034 2.1506 2.37325 2.35179C2.16463 2.50337 1.98052 2.68747 1.82895 2.89609C1.62776 3.17318 1.49928 3.54048 1.43069 4.1736C1.36074 4.81967 1.36023 5.65896 1.36023 6.85014V9.14986C1.36023 10.341 1.36074 11.1803 1.43069 11.8264C1.49928 12.4595 1.62776 12.8268 1.82895 13.1039C1.98052 13.3125 2.16463 13.4966 2.37325 13.6482C2.65034 13.8494 3.01764 13.9779 3.65076 14.0465C3.81478 14.0642 3.99127 14.0774 4.1828 14.0873V1.91166Z"/></svg></button><button class="sol-exp-rail-icon" title="${t("panel.explorer")}" onclick="window.__solExpRailOpen('explorer')"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h5l1.5 1.5h6a1 1 0 0 1 1 1V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></button><button class="sol-exp-rail-icon" title="${t("file.search")}" onclick="window.__solExpRailOpen('search')"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M9.8 9.8L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button><button class="sol-exp-rail-icon" title="${t("panel.scm")}" onclick="window.__solExpRailOpen('scm')"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" clipRule="evenodd" d="M6 5C6 4.44772 6.44772 4 7 4C7.55228 4 8 4.44772 8 5C8 5.55228 7.55228 6 7 6C6.44772 6 6 5.55228 6 5ZM8 7.82929C9.16519 7.41746 10 6.30622 10 5C10 3.34315 8.65685 2 7 2C5.34315 2 4 3.34315 4 5C4 6.30622 4.83481 7.41746 6 7.82929V16.1707C4.83481 16.5825 4 17.6938 4 19C4 20.6569 5.34315 22 7 22C8.65685 22 10 20.6569 10 19C10 17.7334 9.21506 16.6501 8.10508 16.2101C8.45179 14.9365 9.61653 14 11 14H13C16.3137 14 19 11.3137 19 8V7.82929C20.1652 7.41746 21 6.30622 21 5C21 3.34315 19.6569 2 18 2C16.3431 2 15 3.34315 15 5C15 6.30622 15.8348 7.41746 17 7.82929V8C17 10.2091 15.2091 12 13 12H11C9.87439 12 8.83566 12.3719 8 12.9996V7.82929ZM18 6C18.5523 6 19 5.55228 19 5C19 4.44772 18.5523 4 18 4C17.4477 4 17 4.44772 17 5C17 5.55228 17.4477 6 18 6ZM6 19C6 18.4477 6.44772 18 7 18C7.55228 18 8 18.4477 8 19C8 19.5523 7.55228 20 7 20C6.44772 20 6 19.5523 6 19Z" fill="currentColor"/></svg>${gitChangesCount > 0 ? `<span class="sol-exp-activity-badge">${gitChangesCount}</span>` : ""}</button></div>`;
+
+						return;
+
+					}
 
 					activeEl.innerHTML = buildHTML();
 
@@ -1572,9 +1605,17 @@ async function doStage(files) {
 
           <div class="sol-exp-activity-btn ${currentTab === "scm" ? "active" : ""}" onclick="window.__solExpTab('scm')" title="${t("panel.scm")}">
 
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="5" cy="3.5" r="1.5" stroke="currentColor" stroke-width="1.2"/><circle cx="5" cy="12.5" r="1.5" stroke="currentColor" stroke-width="1.2"/><circle cx="11.5" cy="7" r="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M5 5v5.5M11.5 8.5c0 2.2-1.3 3-4.2 3" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" clipRule="evenodd" d="M6 5C6 4.44772 6.44772 4 7 4C7.55228 4 8 4.44772 8 5C8 5.55228 7.55228 6 7 6C6.44772 6 6 5.55228 6 5ZM8 7.82929C9.16519 7.41746 10 6.30622 10 5C10 3.34315 8.65685 2 7 2C5.34315 2 4 3.34315 4 5C4 6.30622 4.83481 7.41746 6 7.82929V16.1707C4.83481 16.5825 4 17.6938 4 19C4 20.6569 5.34315 22 7 22C8.65685 22 10 20.6569 10 19C10 17.7334 9.21506 16.6501 8.10508 16.2101C8.45179 14.9365 9.61653 14 11 14H13C16.3137 14 19 11.3137 19 8V7.82929C20.1652 7.41746 21 6.30622 21 5C21 3.34315 19.6569 2 18 2C16.3431 2 15 3.34315 15 5C15 6.30622 15.8348 7.41746 17 7.82929V8C17 10.2091 15.2091 12 13 12H11C9.87439 12 8.83566 12.3719 8 12.9996V7.82929ZM18 6C18.5523 6 19 5.55228 19 5C19 4.44772 18.5523 4 18 4C17.4477 4 17 4.44772 17 5C17 5.55228 17.4477 6 18 6ZM6 19C6 18.4477 6.44772 18 7 18C7.55228 18 8 18.4477 8 19C8 19.5523 7.55228 20 7 20C6.44772 20 6 19.5523 6 19Z" fill="currentColor"/></svg>
 
             ${gitChangesCount > 0 ? `<span class="sol-exp-activity-badge">${gitChangesCount}</span>` : ""}
+
+          </div>
+
+          <div style="flex:1"></div>
+
+          <div class="sol-exp-activity-btn" onclick="window.__solExpTogglePanel()" title="${document.documentElement.lang?.startsWith("zh") ? "收起面板" : "Collapse panel"}">
+
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" clipRule="evenodd" d="M9.67272 0.522841C10.8339 0.522841 11.76 0.522714 12.4963 0.602493C13.2453 0.683657 13.8789 0.854248 14.4264 1.25197C14.7504 1.48739 15.0355 1.77247 15.2709 2.0965C15.6686 2.64394 15.8392 3.27758 15.9204 4.02655C16.0002 4.7629 16 5.68895 16 6.85014V9.14986C16 10.3111 16.0002 11.2371 15.9204 11.9735C15.8392 12.7224 15.6686 13.3561 15.2709 13.9035C15.0355 14.2275 14.7504 14.5126 14.4264 14.748C13.8789 15.1458 13.2453 15.3163 12.4963 15.3975C11.76 15.4773 10.8339 15.4772 9.67272 15.4772H6.3273C5.16611 15.4772 4.24006 15.4773 3.50371 15.3975C2.75474 15.3163 2.1211 15.1458 1.57366 14.748C1.24963 14.5126 0.964549 14.2275 0.729131 13.9035C0.331407 13.3561 0.160817 12.7224 0.0796529 11.9735C-0.000126137 11.2371 1.25338e-09 10.3111 1.25338e-09 9.14986V6.85014C1.25329e-09 5.68895 -0.000126137 4.7629 0.0796529 4.02655C0.160817 3.27758 0.331407 2.64394 0.729131 2.0965C0.964549 1.77247 1.24963 1.48739 1.57366 1.25197C2.1211 0.854248 2.75474 0.683657 3.50371 0.602493C4.24006 0.522714 5.16611 0.522841 6.3273 0.522841H9.67272ZM5.54303 1.88715V14.1118C5.78636 14.1128 6.04709 14.1169 6.3273 14.1169H9.67272C10.8639 14.1169 11.7032 14.1164 12.3493 14.0465C12.9824 13.9779 13.3497 13.8494 13.6268 13.6482C13.8354 13.4966 14.0195 13.3125 14.1711 13.1039C14.3723 12.8268 14.5007 12.4595 14.5693 11.8264C14.6393 11.1803 14.6398 10.341 14.6398 9.14986V6.85014C14.6398 5.65896 14.6393 4.81967 14.5693 4.1736C14.5007 3.54048 14.3723 3.17318 14.1711 2.89609C14.0195 2.68747 13.8354 2.50337 13.6268 2.35179C13.3497 2.1506 12.9824 2.02212 12.3493 1.95353C11.7032 1.88358 10.8639 1.88307 9.67272 1.88307H6.3273C6.04709 1.88307 5.78636 1.8862 5.54303 1.88715ZM4.1828 1.91166C3.99125 1.9216 3.8148 1.93577 3.65076 1.95353C3.01764 2.02212 2.65034 2.1506 2.37325 2.35179C2.16463 2.50337 1.98052 2.68747 1.82895 2.89609C1.62776 3.17318 1.49928 3.54048 1.43069 4.1736C1.36074 4.81967 1.36023 5.65896 1.36023 6.85014V9.14986C1.36023 10.341 1.36074 11.1803 1.43069 11.8264C1.49928 12.4595 1.62776 12.8268 1.82895 13.1039C1.98052 13.3125 2.16463 13.4966 2.37325 13.6482C2.65034 13.8494 3.01764 13.9779 3.65076 14.0465C3.81478 14.0642 3.99127 14.0774 4.1828 14.0873V1.91166Z"/></svg>
 
           </div>
 
@@ -1594,7 +1635,7 @@ async function doStage(files) {
 
         <div class="sol-exp-panel" ondragover="event.preventDefault()" ondrop="event.preventDefault();window.__solExpDrop('', event)" oncontextmenu="window.__solExpPanelContextMenu(event)">
 
-          <div class="sol-exp-activity">${activityBarHTML}</div>
+          ${activityBarHTML}
 
           <div class="sol-exp-body"><div class="sol-exp-main">${contentHTML}</div></div>
 
@@ -2228,6 +2269,18 @@ async function doStage(files) {
 						loadRecentCommits();
 
 					}
+
+				};
+
+				// A rail feature icon expands the column back and opens that
+				// tab in one click (the rail itself has no body to render).
+				window.__solExpRailOpen = (tab) => {
+
+					panelCollapsed = false;
+
+					window.__solExpTab(tab);
+
+					applyGrid();
 
 				};
 
@@ -3288,6 +3341,36 @@ async function doStage(files) {
 
 				};
 
+				window.__solExpTogglePanel = () => {
+
+					// Expand back: drop the folded rail, restore the column at
+					// its stored width preference (panelWidth was never
+					// rewritten while folded).
+					if (panelCollapsed) {
+
+						panelCollapsed = false;
+
+						render();
+
+						applyGrid();
+
+						return;
+
+					}
+
+					// Nothing to fold while the panel is closed (auto-open off
+					// or no session root): the control is only reachable from
+					// the expanded column, but guard anyway.
+					if (panelWidth <= 0) return;
+
+					panelCollapsed = true;
+
+					render();
+
+					applyGrid();
+
+				};
+
 				window.__solExpScmDividerDown = (e) => {
 				e.preventDefault();
 				// Freeze auto-refresh for the duration of the drag so a poll
@@ -3351,9 +3434,19 @@ async function doStage(files) {
 
 				const PANEL_MAX = 560;
 
+				// Collapsed rail width mirrors the native sidebar rail (56px:
+				// 10px side padding + 36px control box) so the folded panel
+				// reads as a sibling of the shell's own collapsed sidebar.
+				const PANEL_RAIL = 56;
+
 				let panelWidth = 0;
 
 				let panelDragged = false;
+
+				// Whole-panel fold state: folded shows the compact rail instead
+				// of the full column. panelWidth keeps the expanded preference
+				// untouched while folded, so expanding restores the exact width.
+				let panelCollapsed = false;
 
 				// Pull the user-editable panel config (settings page). Settings
 				// are STARTUP DEFAULTS only: they decide the initial width when
@@ -3370,6 +3463,9 @@ async function doStage(files) {
 							// reloads so filter/show-hidden changes apply.
 							if (root !== "" && !panelDragged && panelFrame !== null) {
 								panelWidth = panelAutoOpen ? PANEL_WIDTH : 0;
+								// A zero width means "closed": no folded rail may
+								// linger after settings re-apply (e.g. autoOpen off).
+								if (panelWidth === 0) panelCollapsed = false;
 								applyGrid();
 							}
 							if (root !== "") loadTree();
@@ -3461,13 +3557,25 @@ async function doStage(files) {
 
 					if (panelFrame === null || shellTracks.length < 3) return;
 
-					const value = `${shellTracks[0]} minmax(0, 1fr) ${shellTracks[2]} ${Math.round(panelWidth)}px`;
+					// Folded: the column keeps a fixed narrow rail (mirrors the
+					// native collapsed sidebar); expanded it uses the width
+					// preference.
+					const track = panelCollapsed ? PANEL_RAIL : panelWidth;
+
+					const value = `${shellTracks[0]} minmax(0, 1fr) ${shellTracks[2]} ${Math.round(track)}px`;
 					panelFrame.style.gridTemplateColumns = value;
 					lastGridApplied = value;
 
-					if (panelCol !== null) panelCol.style.visibility = panelWidth > 0 ? "visible" : "hidden";
+					if (panelCol !== null) panelCol.style.visibility = panelCollapsed || panelWidth > 0 ? "visible" : "hidden";
 
 					if (resizeHandle !== null) {
+						// The collapsed rail is fixed-width: no resize handle
+						// while folded (native sidebar behavior).
+						if (panelCollapsed) {
+							resizeHandle.style.display = "none";
+							return;
+						}
+						resizeHandle.style.display = "";
 						const w = panelFrame.getBoundingClientRect().width;
 						const handleLeft = w - panelWidth - 3;
 						// The panel grabber and the shell sidebar grabber both
@@ -3685,6 +3793,10 @@ styleObs = new MutationObserver(syncGrid);
 					} else {
 						panelWidth = 0;
 					}
+
+					// A zero width means "closed": no folded rail may linger
+					// when the panel is closed (no root yet, or auto-open off).
+					if (panelWidth === 0) panelCollapsed = false;
 
 					if (panelFrame !== null) applyGrid();
 
@@ -4003,6 +4115,10 @@ styleObs = new MutationObserver(syncGrid);
 						"__solExpDiscardAll",
 
 						"__solExpToggleSection",
+
+						"__solExpTogglePanel",
+
+						"__solExpRailOpen",
 
 						"__solExpClearSearch",
 
