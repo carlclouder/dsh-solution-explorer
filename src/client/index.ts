@@ -3839,17 +3839,30 @@ async function doStage(files) {
 						});
 						const fit = new FitAddon();
 						term.loadAddon(fit);
-						const size = terminalCellSize(pane);
-						// Rows come from the VISIBLE body height — the target panel
-						// height minus the tab bar/resize strip (~40px) — so the
-						// PTY's row count matches what xterm actually renders.
-						// A mismatch makes PSReadLine's history redraw misplace by
-						// a line. cols come from the pane's real width.
-						size.rows = Math.max(8, Math.floor((terminalHeight - 40) / TERM_CELL_H));
+						term.open(pane);
+						// Measure the EXACT post-fit size: stretch the shell to the
+						// target height momentarily (the open animation starts
+						// from 0) so xterm reports real cols/rows, then restore.
+						// Creating the PTY with the true size from the first prompt
+						// eliminates the occasional history-recall misplacement.
+						const shellEl = ensureTerminalShell();
+						const prevHeight = shellEl.style.height;
+						const prevOpacity = shellEl.style.opacity;
+						shellEl.style.height = terminalHeight + "px";
+						shellEl.style.opacity = "1";
+						let exactCols = 20;
+						let exactRows = 8;
+						try {
+							fit.fit();
+							exactCols = term.cols || 20;
+							exactRows = term.rows || 8;
+						} catch { /* keep fallbacks */ }
+						shellEl.style.height = prevHeight;
+						shellEl.style.opacity = prevOpacity;
 						const resp = await fetch("/solution-explorer/terminal", {
 							method: "POST",
 							headers: { "content-type": "application/json" },
-							body: JSON.stringify({ root, cwd: terminalCwd(), shell: terminalShell || undefined, rows: size.rows, cols: size.cols }),
+							body: JSON.stringify({ root, cwd: terminalCwd(), shell: terminalShell || undefined, rows: exactRows, cols: exactCols }),
 						});
 						const res = await resp.json();
 						if (!res.ok) {
@@ -3871,7 +3884,6 @@ async function doStage(files) {
 						terminalSeq++;
 						terminalTabs.push(tab);
 						terminalActiveTab = terminalTabs.length - 1;
-						term.open(pane);
 						try { fit.fit(); } catch { /* zero-size parent */ }
 						term.onData((data) => queueTerminalInput(tab, data));
 						renderTerminalTabs();
@@ -3894,6 +3906,13 @@ async function doStage(files) {
 					fetch("/solution-explorer/terminal/" + tab.id, { method: "DELETE" }).catch(() => {});
 					try { tab.term.dispose(); } catch { /* already gone */ }
 					tab.pane.remove();
+					// Closing the last terminal collapses the whole bottom panel.
+					if (terminalTabs.length === 0) {
+						terminalOpen = false;
+						syncTerminalUI();
+						render(); // refresh the rail/activity toggle active state
+						return;
+					}
 					renderTerminalTabs();
 					fitTerminal();
 				};
