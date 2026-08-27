@@ -3645,7 +3645,11 @@ async function doStage(files) {
 							size = terminalCellSize(tab.pane);
 							size.rows = Math.max(8, Math.floor((terminalHeight - 40) / TERM_CELL_H));
 						}
-						if (termLastSize !== null && termLastSize.cols === size.cols && termLastSize.rows === size.rows) return;
+						// Height-only changes keep the shell alive: stale rows only
+						// affect scroll-region edge cases, while a width (cols)
+						// mismatch corrupts line wrapping and redraws. Reboot —
+						// and with it the shell — only when cols really change.
+						if (termLastSize !== null && termLastSize.cols === size.cols) return;
 						termLastSize = size;
 						try {
 							const resp = await fetch("/solution-explorer/terminal/" + tab.id + "/reboot", {
