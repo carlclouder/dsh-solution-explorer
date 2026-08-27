@@ -50,9 +50,12 @@
   preview with zoom/pan, and other binary files are detected and refused
   instead of corrupted.
 - **Collapsible rail** — collapse the whole panel into a narrow icon rail
-  (expand panel, explorer, search, source control). The source-control icon
+  (expand panel, explorer, search, source control, terminal). The source-control icon
   shows a live change-count badge; clicking an icon reopens the panel on that
   tab, matching the native sidebar's look.
+- **Multi-tab terminal** — a bottom terminal panel opened from the rail
+  (native ConPTY, PowerShell/cmd by default); multiple tabs, drag to resize,
+  and auto cleanup of processes when a tab closes or the connection drops.
 - **File operations** — context menu with new file/folder, delete (confirm
   dialog), copy / cut / paste, copy relative / absolute path; drag files within
   the tree, drag files in from the OS, multi-select bulk actions.
