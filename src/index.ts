@@ -17,6 +17,7 @@ import z from '@deepseek-ai/schemastery'
 import { execFileSync } from 'node:child_process'
 import * as fsp from 'node:fs/promises'
 import * as pathModule from 'node:path'
+import type { Readable } from 'node:stream'
 
 /** Plugin configuration schema (all optional with defaults). */
 export interface Config {
@@ -28,6 +29,14 @@ export interface Config {
   filterPatterns?: string[]
   /** Whether to show dot-prefixed (hidden) files in the tree. */
   showHidden?: boolean
+  /** Default shell for embedded terminals (pwsh / powershell / cmd / bash…). */
+  terminalShell?: string
+  /** Max terminal tabs before the "+" button refuses new sessions. */
+  terminalMaxTabs?: number
+  /** Initial bottom-terminal panel height in px. */
+  terminalHeight?: number
+  /** Max bottom-terminal panel height in px (drag limit). */
+  terminalMaxHeight?: number
 }
 
 export const Config: z<Config> = z.object({
@@ -35,7 +44,61 @@ export const Config: z<Config> = z.object({
   autoOpen: z.boolean().default(true),
   filterPatterns: z.array(z.string()).default([]),
   showHidden: z.boolean().default(false),
+  terminalShell: z.string().default(''),
+  terminalMaxTabs: z.number().step(1).min(2).max(16).default(8),
+  terminalHeight: z.number().step(1).min(120).max(480).default(400),
+  terminalMaxHeight: z.number().step(1).min(240).max(1080).default(1000),
 })
+
+// ─── Embedded terminal (ConPTY via the dsh subprocess service) ──────────────
+
+/** Structural views of the dsh-subprocess terminal contract. The service is
+ *  obtained at runtime through ctx.get('subprocess'); these local shapes keep
+ *  the host half free of a hard dependency on @deepseek-ai/dsh-subprocess. */
+interface PtyHandleLike {
+  readonly pid: number
+  readonly output: Readable
+  readonly done: Promise<unknown>
+  write(data: string): Promise<void>
+  terminate(): Promise<void>
+}
+
+interface SubprocessServiceLike {
+  spawnTerminal(spec: {
+    argv: readonly string[]
+    cwd: string
+    rows: number
+    cols: number
+    graceMs: number
+    signal?: AbortSignal
+  }): Promise<PtyHandleLike>
+  /** Resolve a bare command name to an absolute path (required by spawnTerminal). */
+  resolveExecutable?(command: string): Promise<string>
+}
+
+interface TerminalSession {
+  id: string
+  cwd: string
+  shell: string
+  handle: PtyHandleLike
+  streaming: boolean
+  /** Detaches this session's output sink from the shared stream hub. */
+  bound?: (() => void) | null
+}
+
+/** One multiplexed terminal output frame pushed through the shared SSE stream. */
+interface TermChunk {
+  id: string
+  data?: string
+  end?: boolean
+}
+
+/** True when `target` resolves inside `root` (or equals it). */
+function isPathInside(root: string, target: string): boolean {
+  const resolvedRoot = pathModule.resolve(root)
+  const fullPath = pathModule.resolve(target)
+  return fullPath === resolvedRoot || fullPath.startsWith(resolvedRoot + pathModule.sep)
+}
 
 /** Required services: the route registry, the workspace registry, and the prompt band. */
 export const inject = ['webServer', 'workspaceRegistry', 'systemPrompt']
@@ -44,7 +107,7 @@ export const inject = ['webServer', 'workspaceRegistry', 'systemPrompt']
 const SECTION_ORDER = 210
 
 /** Model-facing announcement. */
-export const EXPLORER_GUIDANCE = '本机已安装 dsh-solution-explorer 插件（DSH Web GUI 的右侧源代码管理面板）：项目会话打开时，聊天区右侧出现文件浏览器与源代码管理面板。能力：文件树浏览当前工作区目录（显示 git 状态标记 M/A/D/U/R），点击文件在编辑标签中查看与编辑内容（支持保存，Ctrl+S 或保存按钮），按文件名搜索；源代码管理面板显示暂存/未暂存/未跟踪变更清单，支持暂存/取消暂存/放弃变更，提交，查看差异与图形化提交历史（可查看提交详情/Checkout），支持仓库同步（抓取/拉取/推送/同步）、分支管理（切换/新建/重命名/删除/合并/发布）、远程仓库管理（添加/删除/修改地址）、非 git 目录初始化、合并冲突检测。设置侧边栏的「资源管理器」页可调整插件个性化设置（面板宽度、自动打开、过滤模式）。数据源为当前会话工作目录的真实文件系统与 git 仓库，宿主进程经 /solution-explorer/* 路由提供。用户提到「右侧面板 / 文件浏览器 / 源代码管理 / 文件树 / 资源管理器 / 变更面板」时即指本插件，请据此协作。'
+export const EXPLORER_GUIDANCE = '本机已安装 dsh-solution-explorer 插件（DSH Web GUI 的右侧源代码管理面板）：项目会话打开时，聊天区右侧出现文件浏览器与源代码管理面板。能力：文件树浏览当前工作区目录（显示 git 状态标记 M/A/D/U/R），点击文件在编辑标签中查看与编辑内容（支持保存，Ctrl+S 或保存按钮），按文件名搜索；源代码管理面板显示暂存/未暂存/未跟踪变更清单，支持暂存/取消暂存/放弃变更，提交，查看差异与图形化提交历史（可查看提交详情/Checkout），支持仓库同步（抓取/拉取/推送/同步）、分支管理（切换/新建/重命名/删除/合并/发布）、远程仓库管理（添加/删除/修改地址）、非 git 目录初始化、合并冲突检测。设置侧边栏的「资源管理器」页可调整插件个性化设置（面板宽度、自动打开、过滤模式）。内置多标签终端：折叠窄条（rail）中的终端图标可展开底部终端面板（DSH 原生 ConPTY，默认 pwsh/cmd），关闭标签或断线自动清理进程；用户提到终端时可用它执行命令。数据源为当前会话工作目录的真实文件系统与 git 仓库，宿主进程经 /solution-explorer/* 路由提供。用户提到「右侧面板 / 文件浏览器 / 源代码管理 / 文件树 / 资源管理器 / 变更面板」时即指本插件，请据此协作。'
 
 // ─── Git helpers ────────────────────────────────────────────────────────────
 
@@ -425,6 +488,115 @@ export function apply(ctx: Context, config: Config = {}): void {
     } catch { /* unregistered or invalid stored section — keep bundle defaults */ }
   }
 
+  // ── Embedded terminal sessions (ConPTY through the dsh subprocess service) ──
+  const terminals = new Map<string, TerminalSession>()
+  let terminalSeq = 0
+  // Well-known absolute shell locations: node-pty cannot spawn bare PATH names
+  // (ConPTY CreateProcess fails with "File not found: " even for cmd), so every
+  // candidate the plugin tries is resolved to an existing absolute path first.
+  const windowsShellPaths = (): string[] => {
+    const list: string[] = []
+    const push = (p: string | undefined): void => { if (p) list.push(p) }
+    if (process.env.LOCALAPPDATA) push(pathModule.join(process.env.LOCALAPPDATA, 'Microsoft', 'WindowsApps', 'pwsh.exe'))
+    push(pathModule.join(process.env.ProgramFiles || 'C:\\Program Files', 'PowerShell', '7', 'pwsh.exe'))
+    push('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
+    push(process.env.ComSpec || 'C:\\Windows\\System32\\cmd.exe')
+    return list
+  }
+  const posixShellPaths = (): string[] => [process.env.SHELL || '/bin/bash', '/bin/bash', '/bin/sh']
+  const resolveShellCandidates = async (shell: string | undefined): Promise<string[][]> => {
+    const s = (shell || '').trim()
+    const pools: string[] = []
+    if (process.platform === 'win32') {
+      pools.push(...windowsShellPaths())
+      if (s) {
+        const abs = (name: string): void => {
+          const table: Record<string, string[]> = {
+            'pwsh': [process.env.LOCALAPPDATA ? pathModule.join(process.env.LOCALAPPDATA, 'Microsoft', 'WindowsApps', 'pwsh.exe') : '', pathModule.join(process.env.ProgramFiles || 'C:\\Program Files', 'PowerShell', '7', 'pwsh.exe')],
+            'powershell': ['C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'],
+            'cmd': [process.env.ComSpec || 'C:\\Windows\\System32\\cmd.exe'],
+          }
+          const mapped = table[name.toLowerCase()]
+          if (mapped) pools.push(...mapped)
+          else pools.push(name)
+        }
+        if (pathModule.isAbsolute(s)) pools.push(s)
+        else { for (const part of s.split(/\s+/)) abs(part) }
+      }
+    } else {
+      pools.push(...posixShellPaths())
+      if (s) {
+        if (pathModule.isAbsolute(s)) pools.push(s)
+        else pools.push(s === 'bash' ? '/bin/bash' : s)
+      }
+    }
+    const seen = new Set<string>()
+    const out: string[][] = []
+    for (const p of pools) {
+      const clean = p.trim()
+      if (!clean || seen.has(clean)) continue
+      seen.add(clean)
+      if (pathModule.isAbsolute(clean)) {
+        try { await fsp.access(clean) } catch { continue } // missing file: skip
+      }
+      out.push([clean])
+    }
+    return out
+  }
+  // Shared output hub: ONE SSE connection carries every session's output
+  // (browsers cap concurrent HTTP/1.1 connections per origin, so per-tab
+  // streams would starve after ~3 terminals).
+  const termListeners = new Set<(m: TermChunk) => void>()
+  const termPush = (m: TermChunk): void => {
+    for (const fn of termListeners) {
+      try { fn(m) } catch { /* listener failure must not break the hub */ }
+    }
+  }
+  const attachSessionSink = (session: TerminalSession): (() => void) => {
+    const output = session.handle.output
+    const onData = (chunk: Buffer | string): void => {
+      const data = Buffer.isBuffer(chunk) ? chunk.toString('base64') : Buffer.from(String(chunk)).toString('base64')
+      termPush({ id: session.id, data })
+    }
+    const onEnd = (): void => { termPush({ id: session.id, end: true }) }
+    output.on('data', onData)
+    output.on('end', onEnd)
+    return () => {
+      output.off('data', onData)
+      output.off('end', onEnd)
+    }
+  }
+  let terminalStreamOn = false
+
+  const terminalSupported = (): boolean => {
+    const sub = ctx.get('subprocess') as SubprocessServiceLike | undefined
+    return !!sub && typeof sub.spawnTerminal === 'function'
+  }
+  const spawnTerminalSession = async (cwd: string, shell: string | undefined, rows: number, cols: number): Promise<TerminalSession> => {
+    const sub = ctx.get('subprocess') as SubprocessServiceLike | undefined
+    if (!sub || typeof sub.spawnTerminal !== 'function') throw new Error('subprocess service unavailable')
+    const candidates = await resolveShellCandidates(shell)
+    let lastError: unknown
+    for (const argv of candidates) {
+      try {
+        const handle = await sub.spawnTerminal({ argv, cwd, rows, cols, graceMs: 2000 })
+        const id = 't' + (++terminalSeq).toString(36) + Math.random().toString(36).slice(2, 6)
+        const session: TerminalSession = { id, cwd, shell: argv.join(' '), handle, streaming: false }
+        terminals.set(id, session)
+        session.bound = attachSessionSink(session)
+        return session
+      } catch (err) { lastError = err }
+    }
+    throw lastError instanceof Error ? lastError : new Error('terminal spawn failed')
+  }
+  const killSession = (id: string): void => {
+    const session = terminals.get(id)
+    if (!session) return
+    if (session.bound) { session.bound(); session.bound = undefined }
+    terminals.delete(id)
+    void session.handle.terminate().catch(() => { /* session already gone */ })
+  }
+
   ctx.effect(() => ctx.systemPrompt.section({
     name: 'plugin:solution-explorer',
     order: SECTION_ORDER,
@@ -439,6 +611,30 @@ export function apply(ctx: Context, config: Config = {}): void {
 
       // ── GET routes ────────────────────────────────────────────────
       if (req.method === 'GET') {
+        // ── Terminal output: ONE shared SSE stream for every session ──
+        // A single long-lived connection multiplexes all terminals, so the
+        // browser's per-origin connection pool is never exhausted by tabs.
+        if (pathname === '/solution-explorer/terminal/stream') {
+          if (terminalStreamOn) { json(res, { ok: false, error: { message: 'terminal stream already open' } }, 409); return }
+          terminalStreamOn = true
+          res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no' })
+          res.write(':ok\n\n')
+          const onMsg = (m: TermChunk): void => {
+            if (!res.writable) return
+            if (m.end) res.write(`event: end\ndata: ${m.id}\n\n`)
+            else res.write(`event: t\ndata: ${m.id}|${m.data}\n\n`)
+          }
+          termListeners.add(onMsg)
+          const cleanup = (): void => {
+            termListeners.delete(onMsg)
+            terminalStreamOn = false
+            // Disconnect policy: the page that owned the terminals is gone —
+            // kill every session so no shell outlives it.
+            for (const s of [...terminals.values()]) killSession(s.id)
+          }
+          res.on('close', cleanup)
+          return
+        }
         switch (pathname) {
           case '/solution-explorer/tree': {
             const root = query.root || ''
@@ -724,6 +920,10 @@ export function apply(ctx: Context, config: Config = {}): void {
             if (typeof payload.defaultWidth === 'number' && payload.defaultWidth >= 264 && payload.defaultWidth <= 420) next.defaultWidth = payload.defaultWidth
             if (typeof payload.autoOpen === 'boolean') next.autoOpen = payload.autoOpen
             if (typeof payload.showHidden === 'boolean') next.showHidden = payload.showHidden
+            if (typeof payload.terminalShell === 'string') next.terminalShell = payload.terminalShell
+            if (typeof payload.terminalMaxTabs === 'number') next.terminalMaxTabs = Math.min(16, Math.max(2, Math.floor(payload.terminalMaxTabs)))
+            if (typeof payload.terminalHeight === 'number') next.terminalHeight = Math.min(480, Math.max(120, Math.floor(payload.terminalHeight)))
+            if (typeof payload.terminalMaxHeight === 'number') next.terminalMaxHeight = Math.min(1080, Math.max(240, Math.floor(payload.terminalMaxHeight)))
             if (Array.isArray(payload.filterPatterns)) next.filterPatterns = payload.filterPatterns.filter((x): x is string => typeof x === 'string')
             const parsed = Config(next)
             effectiveConfig = parsed
@@ -1088,6 +1288,72 @@ export function apply(ctx: Context, config: Config = {}): void {
             json(res, result.ok ? { ok: true, value: true } : { ok: false, error: { message: result.error } })
             return
           }
+          case '/solution-explorer/terminal': {
+            const cwd = typeof payload.cwd === 'string' ? payload.cwd : ''
+            if (!root || !cwd) { json(res, { ok: false, error: { message: 'root and cwd required' } }); return }
+            if (!isPathInside(root, cwd)) { json(res, { ok: false, error: { message: 'cwd outside workspace' } }); return }
+            if (!terminalSupported()) { json(res, { ok: false, code: 'unsupported', error: { message: 'subprocess service unavailable' } }); return }
+            const rows = Math.min(120, Math.max(5, typeof payload.rows === 'number' ? Math.floor(payload.rows) : 24))
+            const cols = Math.min(400, Math.max(20, typeof payload.cols === 'number' ? Math.floor(payload.cols) : 80))
+            try {
+              const session = await spawnTerminalSession(cwd, typeof payload.shell === 'string' ? payload.shell : effectiveConfig.terminalShell, rows, cols)
+              json(res, { ok: true, value: { id: session.id, shell: session.shell } })
+            } catch (err) {
+              json(res, { ok: false, error: { message: err instanceof Error ? err.message : String(err) } })
+            }
+            return
+          }
+          default: {
+            const inputMatch = /^\/solution-explorer\/terminal\/([^/]+)\/input$/.exec(pathname)
+            if (inputMatch) {
+              const session = terminals.get(inputMatch[1])
+              if (!session) { json(res, { ok: false, error: { message: 'terminal not found' } }, 404); return }
+              const data = typeof payload.data === 'string' ? payload.data : ''
+              await session.handle.write(data)
+              json(res, { ok: true, value: true })
+              return
+            }
+            const rebootMatch = /^\/solution-explorer\/terminal\/([^/]+)\/reboot$/.exec(pathname)
+            if (rebootMatch) {
+              const session = terminals.get(rebootMatch[1])
+              if (!session) { json(res, { ok: false, error: { message: 'terminal not found' } }, 404); return }
+              const rows = Math.min(120, Math.max(5, typeof payload.rows === 'number' ? Math.floor(payload.rows) : 24))
+              const cols = Math.min(400, Math.max(20, typeof payload.cols === 'number' ? Math.floor(payload.cols) : 80))
+              try {
+                if (session.bound) { session.bound(); session.bound = undefined }
+                await session.handle.terminate()
+                const next = await spawnTerminalSession(session.cwd, session.shell, rows, cols)
+                // Re-key to the original tab id and rebind the output sink to it
+                // (the fresh spawn attached its sink under its temporary id).
+                terminals.delete(next.id)
+                next.id = session.id
+                if (next.bound) next.bound()
+                next.bound = attachSessionSink(next)
+                next.streaming = false
+                terminals.set(session.id, next)
+                json(res, { ok: true, value: true })
+              } catch (err) {
+                json(res, { ok: false, error: { message: err instanceof Error ? err.message : String(err) } })
+              }
+              return
+            }
+            json(res, { ok: false, error: { message: 'not found' } }, 404)
+            return
+          }
+        }
+        json(res, { ok: false, error: { message: 'not found' } }, 404)
+        return
+      }
+
+      // ── DELETE routes ─────────────────────────────────────────────
+      if (req.method === 'DELETE') {
+        const deleteMatch = /^\/solution-explorer\/terminal\/([^/]+)$/.exec(pathname)
+        if (deleteMatch) {
+          const session = terminals.get(deleteMatch[1])
+          if (!session) { json(res, { ok: false, error: { message: 'terminal not found' } }, 404); return }
+          killSession(deleteMatch[1])
+          json(res, { ok: true, value: true })
+          return
         }
         json(res, { ok: false, error: { message: 'not found' } }, 404)
         return
@@ -1103,6 +1369,17 @@ export function apply(ctx: Context, config: Config = {}): void {
       for (const dispose of disposers) dispose()
     }
   }, 'dsh-solution-explorer: HTTP routes')
+
+  // Host teardown / profile reload: every terminal session is killed so no
+  // shell process outlives the plugin.
+  ctx.effect(() => {
+    return () => {
+      for (const session of terminals.values()) {
+        void session.handle.terminate().catch(() => { /* host teardown */ })
+      }
+      terminals.clear()
+    }
+  }, 'dsh-solution-explorer: terminal teardown')
 }
 
 // ─── Type exports ───────────────────────────────────────────────────────────

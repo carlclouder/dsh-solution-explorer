@@ -24,6 +24,12 @@ import { NS, dictionaries, setLanguage, t, type SolutionExplorerKey } from './lo
 
 import { langFromPath, highlightToHtml, highlightLinesHtml } from './highlight.ts'
 
+import { Terminal } from '@xterm/xterm'
+
+import { FitAddon } from '@xterm/addon-fit'
+
+import { XTERM_CSS } from './xterm-css.ts'
+
 
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -120,6 +126,8 @@ declare global {
     __solExpToggleSection?: (id: string) => void
 
     __solExpTogglePanel?: () => void
+
+    __solExpToggleTerminal?: () => void
 
     __solExpRailOpen?: (tab: string) => void
 
@@ -336,6 +344,30 @@ declare global {
    of a floating pill. Absolute positioning keeps it out of the icon's flex
    row, so counts of any width can't squeeze the icon. */
 .sol-exp-activity-badge { position:absolute; bottom:2px; right:2px; min-width:13px; height:13px; padding:0 3px; border-radius:7px; box-sizing:border-box; background:var(--dsw-alias-button-info-fill,#3964fe); color:#fff; font-size:8px; font-weight:600; line-height:13px; text-align:center; white-space:nowrap; z-index:1; pointer-events:none; }
+
+/* Bottom-terminal toggle inside the folded rail, under the SCM icon, using
+   the same terminal glyph as the activity bar (stroke family, 1.5). */
+.sol-exp-rail-icon.sol-exp-terminal-toggle.active { color:var(--dsw-alias-label-primary,#d4d4d4); background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.06)); }
+
+/* Bottom multi-tab terminal panel (ConPTY embedded). */
+.sol-exp-terminal-shell { position:relative; flex:none; display:flex; flex-direction:column; min-height:0; overflow:hidden; background:var(--dsw-specific-sidebar-fill,var(--dsw-alias-bg-layer-2,#171717)); border-top:1px solid var(--dsw-alias-border-l2); }
+.sol-exp-term-resize { position:absolute; top:-3px; left:0; right:0; height:6px; cursor:ns-resize; touch-action:none; z-index:2; }
+.sol-exp-term-resize::after { content:''; position:absolute; left:0; right:0; top:50%; height:1px; background:var(--dsw-alias-button-floating-fill,#0078d4); opacity:0; transition:opacity .12s ease; }
+.sol-exp-term-resize:hover::after { opacity:.8; }
+.sol-exp-term-tabs { flex:none; display:flex; align-items:center; gap:2px; height:34px; padding:0 8px; border-bottom:1px solid var(--dsw-alias-border-l1); overflow-x:auto; scrollbar-width:thin; }
+.sol-exp-term-tab { flex:1 0 auto; display:flex; align-items:center; gap:6px; height:26px; padding:0 8px; max-width:260px; border-radius:6px; border:none; background:transparent; color:var(--dsw-alias-label-secondary); font-size:12px; cursor:pointer; }
+.sol-exp-term-tab:hover { background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.06)); }
+.sol-exp-term-tab.active { color:var(--dsw-alias-label-primary,#d4d4d4); background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.06)); }
+.sol-exp-term-tab-close { flex:none; width:16px; height:16px; display:flex; align-items:center; justify-content:center; border:none; background:transparent; color:var(--dsw-alias-label-tertiary); cursor:pointer; border-radius:4px; font-size:11px; line-height:1; }
+.sol-exp-term-tab-close:hover { color:var(--dsw-alias-label-primary,#d4d4d4); background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.06)); }
+.sol-exp-term-add { flex:none; width:26px; height:26px; margin-left:4px; display:flex; align-items:center; justify-content:center; border:none; background:transparent; color:var(--dsw-alias-label-secondary); cursor:pointer; border-radius:6px; font-size:14px; }
+.sol-exp-term-add:hover:not(:disabled) { color:var(--dsw-alias-label-primary,#d4d4d4); background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.06)); }
+.sol-exp-term-add:disabled { opacity:.4; cursor:default; }
+.sol-exp-term-body { flex:1; min-height:0; position:relative; background:var(--dsw-alias-bg-layer-1,#101010); }
+.sol-exp-term-pane { position:absolute; inset:0; visibility:hidden; }
+.sol-exp-term-pane.active { visibility:visible; }
+.sol-exp-term-pane .xterm { height:100%; }
+.sol-exp-term-exited { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--dsw-alias-label-tertiary,#6e6e6e); font-size:13px; gap:10px; }
 
 .sol-exp-resize-handle { position:absolute; top:0; bottom:0; width:8px; margin-left:-4px; cursor:col-resize; z-index:2; touch-action:none; background:transparent; }
 .sol-exp-resize-handle::after { content:''; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:3px; height:44px; border-radius:2px; background:var(--dsw-alias-button-floating-fill,#0078d4); opacity:0; transition:opacity .12s ease; }
@@ -688,7 +720,7 @@ function _notifyDiffListeners() {
 
 				style.id = styleId;
 
-				style.textContent = STYLES;
+				style.textContent = STYLES + "\n" + XTERM_CSS;
 
 				document.head.appendChild(style);
 
@@ -807,7 +839,7 @@ function _notifyDiffListeners() {
 						// 16px panel-left glyph (same Figma source the shell
 						// swaps in on rail hover), so the folded panel reads as
 						// a sibling of the native collapsed rail.
-						activeEl.innerHTML = `<div class="sol-exp-panel sol-exp-panel-rail"><button class="sol-exp-rail-btn" title="${document.documentElement.lang?.startsWith("zh") ? "展开面板" : "Expand panel"}" onclick="window.__solExpTogglePanel()"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" clipRule="evenodd" d="M9.67272 0.522841C10.8339 0.522841 11.76 0.522714 12.4963 0.602493C13.2453 0.683657 13.8789 0.854248 14.4264 1.25197C14.7504 1.48739 15.0355 1.77247 15.2709 2.0965C15.6686 2.64394 15.8392 3.27758 15.9204 4.02655C16.0002 4.7629 16 5.68895 16 6.85014V9.14986C16 10.3111 16.0002 11.2371 15.9204 11.9735C15.8392 12.7224 15.6686 13.3561 15.2709 13.9035C15.0355 14.2275 14.7504 14.5126 14.4264 14.748C13.8789 15.1458 13.2453 15.3163 12.4963 15.3975C11.76 15.4773 10.8339 15.4772 9.67272 15.4772H6.3273C5.16611 15.4772 4.24006 15.4773 3.50371 15.3975C2.75474 15.3163 2.1211 15.1458 1.57366 14.748C1.24963 14.5126 0.964549 14.2275 0.729131 13.9035C0.331407 13.3561 0.160817 12.7224 0.0796529 11.9735C-0.000126137 11.2371 1.25338e-09 10.3111 1.25338e-09 9.14986V6.85014C1.25329e-09 5.68895 -0.000126137 4.7629 0.0796529 4.02655C0.160817 3.27758 0.331407 2.64394 0.729131 2.0965C0.964549 1.77247 1.24963 1.48739 1.57366 1.25197C2.1211 0.854248 2.75474 0.683657 3.50371 0.602493C4.24006 0.522714 5.16611 0.522841 6.3273 0.522841H9.67272ZM5.54303 1.88715V14.1118C5.78636 14.1128 6.04709 14.1169 6.3273 14.1169H9.67272C10.8639 14.1169 11.7032 14.1164 12.3493 14.0465C12.9824 13.9779 13.3497 13.8494 13.6268 13.6482C13.8354 13.4966 14.0195 13.3125 14.1711 13.1039C14.3723 12.8268 14.5007 12.4595 14.5693 11.8264C14.6393 11.1803 14.6398 10.341 14.6398 9.14986V6.85014C14.6398 5.65896 14.6393 4.81967 14.5693 4.1736C14.5007 3.54048 14.3723 3.17318 14.1711 2.89609C14.0195 2.68747 13.8354 2.50337 13.6268 2.35179C13.3497 2.1506 12.9824 2.02212 12.3493 1.95353C11.7032 1.88358 10.8639 1.88307 9.67272 1.88307H6.3273C6.04709 1.88307 5.78636 1.8862 5.54303 1.88715ZM4.1828 1.91166C3.99125 1.9216 3.8148 1.93577 3.65076 1.95353C3.01764 2.02212 2.65034 2.1506 2.37325 2.35179C2.16463 2.50337 1.98052 2.68747 1.82895 2.89609C1.62776 3.17318 1.49928 3.54048 1.43069 4.1736C1.36074 4.81967 1.36023 5.65896 1.36023 6.85014V9.14986C1.36023 10.341 1.36074 11.1803 1.43069 11.8264C1.49928 12.4595 1.62776 12.8268 1.82895 13.1039C1.98052 13.3125 2.16463 13.4966 2.37325 13.6482C2.65034 13.8494 3.01764 13.9779 3.65076 14.0465C3.81478 14.0642 3.99127 14.0774 4.1828 14.0873V1.91166Z"/></svg></button><button class="sol-exp-rail-icon" title="${t("panel.explorer")}" onclick="window.__solExpRailOpen('explorer')"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h5l1.5 1.5h6a1 1 0 0 1 1 1V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></button><button class="sol-exp-rail-icon" title="${t("file.search")}" onclick="window.__solExpRailOpen('search')"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M9.8 9.8L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button><button class="sol-exp-rail-icon" title="${t("panel.scm")}" onclick="window.__solExpRailOpen('scm')"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" clipRule="evenodd" d="M6 5C6 4.44772 6.44772 4 7 4C7.55228 4 8 4.44772 8 5C8 5.55228 7.55228 6 7 6C6.44772 6 6 5.55228 6 5ZM8 7.82929C9.16519 7.41746 10 6.30622 10 5C10 3.34315 8.65685 2 7 2C5.34315 2 4 3.34315 4 5C4 6.30622 4.83481 7.41746 6 7.82929V16.1707C4.83481 16.5825 4 17.6938 4 19C4 20.6569 5.34315 22 7 22C8.65685 22 10 20.6569 10 19C10 17.7334 9.21506 16.6501 8.10508 16.2101C8.45179 14.9365 9.61653 14 11 14H13C16.3137 14 19 11.3137 19 8V7.82929C20.1652 7.41746 21 6.30622 21 5C21 3.34315 19.6569 2 18 2C16.3431 2 15 3.34315 15 5C15 6.30622 15.8348 7.41746 17 7.82929V8C17 10.2091 15.2091 12 13 12H11C9.87439 12 8.83566 12.3719 8 12.9996V7.82929ZM18 6C18.5523 6 19 5.55228 19 5C19 4.44772 18.5523 4 18 4C17.4477 4 17 4.44772 17 5C17 5.55228 17.4477 6 18 6ZM6 19C6 18.4477 6.44772 18 7 18C7.55228 18 8 18.4477 8 19C8 19.5523 7.55228 20 7 20C6.44772 20 6 19.5523 6 19Z" fill="currentColor"/></svg>${gitChangesCount > 0 ? `<span class="sol-exp-activity-badge">${gitChangesCount}</span>` : ""}</button></div>`;
+						activeEl.innerHTML = `<div class="sol-exp-panel sol-exp-panel-rail"><button class="sol-exp-rail-btn" title="${document.documentElement.lang?.startsWith("zh") ? "展开面板" : "Expand panel"}" onclick="window.__solExpTogglePanel()"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" clipRule="evenodd" d="M9.67272 0.522841C10.8339 0.522841 11.76 0.522714 12.4963 0.602493C13.2453 0.683657 13.8789 0.854248 14.4264 1.25197C14.7504 1.48739 15.0355 1.77247 15.2709 2.0965C15.6686 2.64394 15.8392 3.27758 15.9204 4.02655C16.0002 4.7629 16 5.68895 16 6.85014V9.14986C16 10.3111 16.0002 11.2371 15.9204 11.9735C15.8392 12.7224 15.6686 13.3561 15.2709 13.9035C15.0355 14.2275 14.7504 14.5126 14.4264 14.748C13.8789 15.1458 13.2453 15.3163 12.4963 15.3975C11.76 15.4773 10.8339 15.4772 9.67272 15.4772H6.3273C5.16611 15.4772 4.24006 15.4773 3.50371 15.3975C2.75474 15.3163 2.1211 15.1458 1.57366 14.748C1.24963 14.5126 0.964549 14.2275 0.729131 13.9035C0.331407 13.3561 0.160817 12.7224 0.0796529 11.9735C-0.000126137 11.2371 1.25338e-09 10.3111 1.25338e-09 9.14986V6.85014C1.25329e-09 5.68895 -0.000126137 4.7629 0.0796529 4.02655C0.160817 3.27758 0.331407 2.64394 0.729131 2.0965C0.964549 1.77247 1.24963 1.48739 1.57366 1.25197C2.1211 0.854248 2.75474 0.683657 3.50371 0.602493C4.24006 0.522714 5.16611 0.522841 6.3273 0.522841H9.67272ZM5.54303 1.88715V14.1118C5.78636 14.1128 6.04709 14.1169 6.3273 14.1169H9.67272C10.8639 14.1169 11.7032 14.1164 12.3493 14.0465C12.9824 13.9779 13.3497 13.8494 13.6268 13.6482C13.8354 13.4966 14.0195 13.3125 14.1711 13.1039C14.3723 12.8268 14.5007 12.4595 14.5693 11.8264C14.6393 11.1803 14.6398 10.341 14.6398 9.14986V6.85014C14.6398 5.65896 14.6393 4.81967 14.5693 4.1736C14.5007 3.54048 14.3723 3.17318 14.1711 2.89609C14.0195 2.68747 13.8354 2.50337 13.6268 2.35179C13.3497 2.1506 12.9824 2.02212 12.3493 1.95353C11.7032 1.88358 10.8639 1.88307 9.67272 1.88307H6.3273C6.04709 1.88307 5.78636 1.8862 5.54303 1.88715ZM4.1828 1.91166C3.99125 1.9216 3.8148 1.93577 3.65076 1.95353C3.01764 2.02212 2.65034 2.1506 2.37325 2.35179C2.16463 2.50337 1.98052 2.68747 1.82895 2.89609C1.62776 3.17318 1.49928 3.54048 1.43069 4.1736C1.36074 4.81967 1.36023 5.65896 1.36023 6.85014V9.14986C1.36023 10.341 1.36074 11.1803 1.43069 11.8264C1.49928 12.4595 1.62776 12.8268 1.82895 13.1039C1.98052 13.3125 2.16463 13.4966 2.37325 13.6482C2.65034 13.8494 3.01764 13.9779 3.65076 14.0465C3.81478 14.0642 3.99127 14.0774 4.1828 14.0873V1.91166Z"/></svg></button><button class="sol-exp-rail-icon" title="${t("panel.explorer")}" onclick="window.__solExpRailOpen('explorer')"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h5l1.5 1.5h6a1 1 0 0 1 1 1V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></button><button class="sol-exp-rail-icon" title="${t("file.search")}" onclick="window.__solExpRailOpen('search')"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M9.8 9.8L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button><button class="sol-exp-rail-icon" title="${t("panel.scm")}" onclick="window.__solExpRailOpen('scm')"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" clipRule="evenodd" d="M6 5C6 4.44772 6.44772 4 7 4C7.55228 4 8 4.44772 8 5C8 5.55228 7.55228 6 7 6C6.44772 6 6 5.55228 6 5ZM8 7.82929C9.16519 7.41746 10 6.30622 10 5C10 3.34315 8.65685 2 7 2C5.34315 2 4 3.34315 4 5C4 6.30622 4.83481 7.41746 6 7.82929V16.1707C4.83481 16.5825 4 17.6938 4 19C4 20.6569 5.34315 22 7 22C8.65685 22 10 20.6569 10 19C10 17.7334 9.21506 16.6501 8.10508 16.2101C8.45179 14.9365 9.61653 14 11 14H13C16.3137 14 19 11.3137 19 8V7.82929C20.1652 7.41746 21 6.30622 21 5C21 3.34315 19.6569 2 18 2C16.3431 2 15 3.34315 15 5C15 6.30622 15.8348 7.41746 17 7.82929V8C17 10.2091 15.2091 12 13 12H11C9.87439 12 8.83566 12.3719 8 12.9996V7.82929ZM18 6C18.5523 6 19 5.55228 19 5C19 4.44772 18.5523 4 18 4C17.4477 4 17 4.44772 17 5C17 5.55228 17.4477 6 18 6ZM6 19C6 18.4477 6.44772 18 7 18C7.55228 18 8 18.4477 8 19C8 19.5523 7.55228 20 7 20C6.44772 20 6 19.5523 6 19Z" fill="currentColor"/></svg>${gitChangesCount > 0 ? `<span class="sol-exp-activity-badge">${gitChangesCount}</span>` : ""}</button><button class="sol-exp-rail-icon sol-exp-terminal-toggle${terminalOpen ? " active" : ""}" title="${document.documentElement.lang?.startsWith("zh") ? "终端" : "Terminal"}" onclick="window.__solExpToggleTerminal()"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M4.5 5.5l2.5 2.5-2.5 2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 10.5h2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button></div>`;
 
 						return;
 
@@ -1608,6 +1640,12 @@ async function doStage(files) {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" clipRule="evenodd" d="M6 5C6 4.44772 6.44772 4 7 4C7.55228 4 8 4.44772 8 5C8 5.55228 7.55228 6 7 6C6.44772 6 6 5.55228 6 5ZM8 7.82929C9.16519 7.41746 10 6.30622 10 5C10 3.34315 8.65685 2 7 2C5.34315 2 4 3.34315 4 5C4 6.30622 4.83481 7.41746 6 7.82929V16.1707C4.83481 16.5825 4 17.6938 4 19C4 20.6569 5.34315 22 7 22C8.65685 22 10 20.6569 10 19C10 17.7334 9.21506 16.6501 8.10508 16.2101C8.45179 14.9365 9.61653 14 11 14H13C16.3137 14 19 11.3137 19 8V7.82929C20.1652 7.41746 21 6.30622 21 5C21 3.34315 19.6569 2 18 2C16.3431 2 15 3.34315 15 5C15 6.30622 15.8348 7.41746 17 7.82929V8C17 10.2091 15.2091 12 13 12H11C9.87439 12 8.83566 12.3719 8 12.9996V7.82929ZM18 6C18.5523 6 19 5.55228 19 5C19 4.44772 18.5523 4 18 4C17.4477 4 17 4.44772 17 5C17 5.55228 17.4477 6 18 6ZM6 19C6 18.4477 6.44772 18 7 18C7.55228 18 8 18.4477 8 19C8 19.5523 7.55228 20 7 20C6.44772 20 6 19.5523 6 19Z" fill="currentColor"/></svg>
 
             ${gitChangesCount > 0 ? `<span class="sol-exp-activity-badge">${gitChangesCount}</span>` : ""}
+
+          </div>
+
+          <div class="sol-exp-activity-btn ${terminalOpen ? "active" : ""}" onclick="window.__solExpToggleTerminal()" title="${t("panel.terminal")}">
+
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M4.5 5.5l2.5 2.5-2.5 2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 10.5h2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
 
           </div>
 
@@ -3448,6 +3486,488 @@ async function doStage(files) {
 				// untouched while folded, so expanding restores the exact width.
 				let panelCollapsed = false;
 
+				// ── Embedded multi-tab terminal (ConPTY via the host service) ──
+				const TERM_CELL_W = 9;
+				const TERM_CELL_H = 18;
+				let terminalOpen = false;
+				let terminalSupported = true;
+				let terminalHeight = 400;
+				let terminalMaxHeight = 1000;
+				let terminalMaxTabs = 8;
+				let terminalShell = "";
+				let terminalTabs = [];
+				let terminalSeq = 0;
+				let terminalBusy = false;
+				let terminalActiveTab = 0;
+				let terminalShellEl = null;
+				let terminalRebootTimer = null;
+				const termLang = () => document.documentElement.lang?.startsWith("zh") === true;
+				const terminalCwd = () => gitRoot() || root;
+				const terminalCellSize = (el) => ({
+					cols: Math.max(20, Math.floor((el?.clientWidth || 320) / TERM_CELL_W)),
+					rows: Math.max(5, Math.floor((el?.clientHeight || 120) / TERM_CELL_H)),
+				});
+				const terminalShellName = (shell) => {
+					const first = String(shell ?? "").trim().split(/\s+/)[0] || "shell";
+					const base = first.replace(/\\/g, "/").split("/").pop() || first;
+					return base.replace(/\.exe$/i, "");
+				};
+
+				// Localized terminal error toast: known host failures get a
+				// friendly hint (with the raw detail appended for debugging).
+				const showTerminalError = (msg) => {
+					const raw = String(msg || "");
+					if (/file not found/i.test(raw)) {
+						showToast(t("terminal.shellNotFound") + (raw ? " (" + raw + ")" : ""));
+					} else {
+						showToast(t("terminal.startFail") + raw);
+					}
+				};
+
+				const ensureTerminalShell = () => {
+					if (terminalShellEl !== null) return terminalShellEl;
+					const shell = document.createElement("div");
+					shell.className = "sol-exp-terminal-shell";
+					// Start collapsed (0 height) so the first open animates.
+					shell.style.height = "0px";
+					shell.style.opacity = "0";
+					shell.style.display = "flex";
+					shell.innerHTML = `<div class="sol-exp-term-resize"></div><div class="sol-exp-term-tabs"></div><div class="sol-exp-term-body"><div class="sol-exp-term-exited" style="display:none">${t("terminal.empty")}</div></div>`;
+					terminalShellEl = shell;
+					// Keep the PTY size in sync with the rendered body: any width
+					// change (window, sidebar drag, layout shifts) re-fits and
+					// rebuilds so pwsh wraps and redraws at the same columns.
+					const sizeObs = new ResizeObserver(() => {
+						if (terminalTabs.length === 0) return;
+						if (Date.now() < termSettleUntil) return;
+						fitTerminal();
+						scheduleTerminalReboot();
+					});
+					const termBody = shell.querySelector(".sol-exp-term-body");
+					if (termBody !== null) sizeObs.observe(termBody);
+					termSizeObserver = sizeObs;
+					let dragStart = null;
+					const onMove = (e: PointerEvent) => {
+						if (dragStart === null) return;
+						terminalHeight = Math.min(terminalMaxHeight, Math.max(120, dragStart.h - (e.clientY - dragStart.y)));
+						shell.style.height = terminalHeight + "px";
+					};
+					const onUp = () => {
+						if (dragStart === null) return;
+						dragStart = null;
+						document.removeEventListener("pointermove", onMove);
+						document.removeEventListener("pointerup", onUp);
+						document.removeEventListener("pointercancel", onUp);
+						// Re-enable the height transition eased back in for later
+						// expand/collapse animations (disabled while dragging).
+						shell.style.transition = "";
+						fitTerminal();
+						scheduleTerminalReboot();
+					};
+					const grab = shell.querySelector(".sol-exp-term-resize") as HTMLDivElement;
+					grab.addEventListener("pointerdown", (e: PointerEvent) => {
+						e.preventDefault();
+						dragStart = { y: e.clientY, h: terminalHeight };
+						// No transition while dragging: the panel must track the
+						// pointer one-to-one, not ease behind it.
+						shell.style.transition = "none";
+						grab.setPointerCapture?.(e.pointerId);
+						document.addEventListener("pointermove", onMove);
+						document.addEventListener("pointerup", onUp);
+						document.addEventListener("pointercancel", onUp);
+					});
+					return shell;
+				};
+
+				const renderTerminalTabs = () => {
+					if (terminalShellEl === null) return;
+					const bar = terminalShellEl.querySelector(".sol-exp-term-tabs");
+					const body = terminalShellEl.querySelector(".sol-exp-term-body");
+					bar.innerHTML = "";
+					terminalTabs.forEach((tab, i) => {
+						tab.pane.dataset.index = String(i);
+						const btn = document.createElement("button");
+						btn.type = "button";
+						btn.className = "sol-exp-term-tab" + (i === terminalActiveTab ? " active" : "");
+						btn.title = t("panel.terminal") + " " + (i + 1) + " — " + tab.shell;
+						const label = document.createElement("span");
+						label.style.cssText = "flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left";
+						label.textContent = (tab.exited ? "✕ " : "▸ ") + tab.title;
+						btn.appendChild(label);
+						const close = document.createElement("button");
+						close.type = "button";
+						close.className = "sol-exp-term-tab-close";
+						close.textContent = "×";
+						close.title = t("terminal.close") || t("terminal.new");
+						close.addEventListener("click", (e) => { e.stopPropagation(); closeTerminalTab(i); });
+						btn.appendChild(close);
+						btn.addEventListener("click", () => activateTerminalTab(i));
+						bar.appendChild(btn);
+					});
+					const add = document.createElement("button");
+					add.type = "button";
+					add.className = "sol-exp-term-add";
+					add.title = t("terminal.new");
+					add.textContent = "+";
+					add.disabled = terminalBusy || terminalTabs.length >= terminalMaxTabs;
+					add.addEventListener("click", () => addTerminalTab());
+					bar.appendChild(add);
+					body.querySelectorAll(".sol-exp-term-pane").forEach((p) => p.classList.toggle("active", p.dataset.index === String(terminalActiveTab)));
+					const empty = body.querySelector(".sol-exp-term-exited");
+					empty.style.display = terminalTabs.length === 0 ? "flex" : "none";
+				};
+
+				const activateTerminalTab = (i) => {
+					terminalActiveTab = i;
+					renderTerminalTabs();
+					fitTerminal();
+				};
+
+				const fitTerminal = () => {
+					const tab = terminalTabs[terminalActiveTab];
+					if (!tab || !terminalOpen) return;
+					try { tab.fit.fit(); } catch { /* hidden or sizing */ }
+				};
+
+				const scheduleTerminalReboot = () => {
+					if (terminalRebootTimer !== null) clearTimeout(terminalRebootTimer);
+					terminalRebootTimer = setTimeout(async () => {
+						terminalRebootTimer = null;
+						const tab = terminalTabs[terminalActiveTab];
+						if (!tab || tab.exited || !terminalOpen) return;
+						// Authoritative size: xterm's own post-fit cols/rows, so the
+						// PTY wraps and redraws at EXACTLY the columns/rows the
+						// renderer uses (an estimate like paneWidth/9 drifts from
+						// the real cell width and PSReadLine's recall redraw then
+						// lands on the wrong line).
+						let size = { cols: tab.term.cols, rows: tab.term.rows };
+						if (!size.cols || !size.rows) {
+							size = terminalCellSize(tab.pane);
+							size.rows = Math.max(8, Math.floor((terminalHeight - 40) / TERM_CELL_H));
+						}
+						if (termLastSize !== null && termLastSize.cols === size.cols && termLastSize.rows === size.rows) return;
+						termLastSize = size;
+						try {
+							const resp = await fetch("/solution-explorer/terminal/" + tab.id + "/reboot", {
+								method: "POST",
+								headers: { "content-type": "application/json" },
+								body: JSON.stringify({ rows: size.rows, cols: size.cols }),
+							});
+							const res = await resp.json();
+							if (!res.ok) showTerminalError(res.error?.message || t("terminal.rebootFail"));
+						} catch { /* keep the tab as is */ }
+					}, 400);
+				};
+
+				// ONE shared SSE stream carries every tab's output — per-tab streams
+				// would exhaust the browser's connection pool (~6 per origin)
+				// after a few terminals.
+				let terminalStreamOn = false;
+				let terminalStreamCtrl = null;
+				let termSizeObserver = null;
+				let termSettleUntil = 0;
+				let termLastSize = null;
+
+				// Input batching: keystrokes coalesce into one POST every few ms
+				// instead of one fetch per key (typing bursts stall otherwise).
+				// Pending/in-flight state is PER TAB so typing in one terminal can
+				// never leak keystrokes into another.
+				let termInputTimer = null;
+				const termInputPending = new Map();
+				const termInputInFlight = new Map();
+				const termInputTail = new Map();
+				const flushTerminalInput = async () => {
+					termInputTimer = null;
+					const batch = [...termInputPending.entries()];
+					termInputPending.clear();
+					for (const [id, data] of batch) {
+						if (data === "") continue;
+						if (termInputInFlight.get(id)) {
+							termInputTail.set(id, (termInputTail.get(id) || "") + data);
+							continue;
+						}
+						termInputInFlight.set(id, true);
+						(async () => {
+							try {
+								await fetch("/solution-explorer/terminal/" + id + "/input", {
+									method: "POST",
+									headers: { "content-type": "application/json" },
+									body: JSON.stringify({ data }),
+								});
+							} catch { /* keep typing */ }
+							termInputInFlight.set(id, false);
+							const tail = termInputTail.get(id);
+							termInputTail.set(id, "");
+							if (tail) queueTerminalInput({ id }, tail);
+						})();
+					}
+				};
+				const queueTerminalInput = (tab, data) => {
+					termInputPending.set(tab.id, (termInputPending.get(tab.id) || "") + data);
+					if (termInputTimer === null) termInputTimer = setTimeout(flushTerminalInput, 12);
+				};
+
+				// Output coalescing: burst frames accumulate and flush to xterm
+				// once per animation frame instead of one write per frame.
+				let termOutputFlush = null;
+				const flushTerminalOutput = () => {
+					termOutputFlush = null;
+					for (const tab of terminalTabs) {
+						if (tab._out !== undefined && tab._out !== "") {
+							const s = tab._out;
+							tab._out = "";
+							tab.term.write(s);
+						}
+					}
+				};
+				const queueTerminalOutput = (tab, text) => {
+					tab._out = (tab._out || "") + text;
+					if (termOutputFlush === null) termOutputFlush = requestAnimationFrame(flushTerminalOutput);
+				};
+
+				const ensureTerminalStream = () => {
+					if (terminalStreamOn) return;
+					terminalStreamOn = true;
+					terminalStreamCtrl = new AbortController();
+					(async () => {
+						try {
+							const resp = await fetch("/solution-explorer/terminal/stream", { signal: terminalStreamCtrl.signal });
+							if (!resp.ok || !resp.body) {
+								terminalStreamOn = false;
+								// A 404 means the HOST is still running an older
+								// build (the shared stream route is new) — a page
+								// refresh cannot fix that; the app process must
+								// fully restart.
+								showToast(termLang() ? "宿主进程版本过旧，终端输出不可用——请完全退出并重启 DSH 应用" : "Host is outdated — fully restart DSH to enable terminal output");
+								return;
+							}
+							const reader = resp.body.getReader();
+							const decoder = new TextDecoder();
+							let buf = "";
+							while (terminalStreamOn) {
+								const { done, value } = await reader.read();
+								if (done) break;
+								buf += decoder.decode(value, { stream: true });
+								let idx;
+								let frameCount = 0;
+								while ((idx = buf.indexOf("\n\n")) >= 0) {
+									const block = buf.slice(0, idx);
+									buf = buf.slice(idx + 2);
+									let ev = "";
+									let data = "";
+									for (const line of block.split("\n")) {
+										if (line.startsWith("event:")) ev = line.slice(6).trim();
+										else if (line.startsWith("data:")) data = line.slice(5).trim();
+									}
+									if (ev === "t" && data.includes("|")) {
+										const sep = data.indexOf("|");
+										const id = data.slice(0, sep);
+										const b64 = data.slice(sep + 1);
+										const tab = terminalTabs.find((x) => x.id === id);
+										if (tab && b64) {
+											try {
+												// base64 → bytes → streaming UTF-8 decode:
+												// feeding raw latin-1 chars to xterm breaks
+												// multibyte (Chinese) output.
+												const bin = window.atob(b64);
+												const bytes = new Uint8Array(bin.length);
+												for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+												queueTerminalOutput(tab, tab.decoder.decode(bytes, { stream: true }));
+											} catch { /* bad frame */ }
+										}
+									} else if (ev === "end") {
+										const tab = terminalTabs.find((x) => x.id === data);
+										if (tab && !tab.exited) {
+											try { tab.decoder.decode(); } catch { /* flush tail */ }
+											if (termOutputFlush !== null) { cancelAnimationFrame(termOutputFlush); termOutputFlush = null; }
+											flushTerminalOutput();
+											tab.exited = true;
+											tab.term.write("\r\n\x1b[90m[" + (termLang() ? "进程已退出" : "process exited") + "]\x1b[0m\r\n");
+											renderTerminalTabs();
+										}
+									}
+									// Yield during output bursts so the main thread
+									// never stays blocked in this parse loop.
+									if (++frameCount % 128 === 0) await new Promise((r) => setTimeout(r, 0));
+								}
+							}
+						} catch { /* aborted or dropped */ }
+						terminalStreamOn = false;
+					})();
+				};
+
+				const stopTerminalStream = () => {
+					terminalStreamOn = false;
+					if (terminalStreamCtrl !== null) { try { terminalStreamCtrl.abort(); } catch { /* ignore */ } terminalStreamCtrl = null; }
+				};
+
+				const addTerminalTab = async () => {
+					if (terminalBusy) return;
+					if (!terminalSupported) { showToast(t("terminal.unsupported")); return; }
+					if (root === "") { showToast(termLang() ? "先打开工作区再使用终端" : "Open a workspace first"); return; }
+					if (terminalTabs.length >= terminalMaxTabs) {
+						showToast(termLang() ? "最多 " + terminalMaxTabs + " 个终端标签" : "Up to " + terminalMaxTabs + " terminal tabs");
+						return;
+					}
+					terminalBusy = true;
+					renderTerminalTabs();
+					try {
+						const pane = document.createElement("div");
+						pane.className = "sol-exp-term-pane";
+						pane.dataset.index = String(terminalTabs.length);
+						ensureTerminalShell().querySelector(".sol-exp-term-body").appendChild(pane);
+						const term = new Terminal({
+							fontSize: 13,
+							fontFamily: 'Consolas, "Cascadia Mono", "Microsoft YaHei", Menlo, monospace',
+							cursorBlink: true,
+							allowProposedApi: false,
+							theme: {
+								background: "transparent",
+								foreground: "#d4d4d4",
+								cursorAccent: "#101010",
+								selectionBackground: "rgba(75,159,255,0.30)",
+								black: "#242424", red: "#f85149", green: "#3fb950", yellow: "#d29922",
+								blue: "#58a6ff", magenta: "#bc8cff", cyan: "#39c5cf", white: "#d4d4d4",
+								brightBlack: "#6e6e6e", brightRed: "#ff7b72", brightGreen: "#56d364",
+								brightYellow: "#e3b341", brightBlue: "#79c0ff", brightMagenta: "#d2a8ff",
+								brightCyan: "#56d4dd", brightWhite: "#ffffff",
+							},
+						});
+						const fit = new FitAddon();
+						term.loadAddon(fit);
+						const size = terminalCellSize(pane);
+						// Rows come from the VISIBLE body height — the target panel
+						// height minus the tab bar/resize strip (~40px) — so the
+						// PTY's row count matches what xterm actually renders.
+						// A mismatch makes PSReadLine's history redraw misplace by
+						// a line. cols come from the pane's real width.
+						size.rows = Math.max(8, Math.floor((terminalHeight - 40) / TERM_CELL_H));
+						const resp = await fetch("/solution-explorer/terminal", {
+							method: "POST",
+							headers: { "content-type": "application/json" },
+							body: JSON.stringify({ root, cwd: terminalCwd(), shell: terminalShell || undefined, rows: size.rows, cols: size.cols }),
+						});
+						const res = await resp.json();
+						if (!res.ok) {
+							terminalSupported = res.code !== "unsupported";
+							pane.remove();
+							term.dispose();
+							if (res.code === "unsupported") showToast(t("terminal.unsupported"));
+							else showTerminalError(res.error?.message);
+							return;
+						}
+						const tab = {
+							id: res.value.id,
+							shell: res.value.shell || terminalShellName(terminalShell) || "shell",
+							title: terminalShellName(res.value.shell),
+							pane, term, fit,
+							decoder: new TextDecoder(),
+							exited: false, aborted: false,
+						};
+						terminalSeq++;
+						terminalTabs.push(tab);
+						terminalActiveTab = terminalTabs.length - 1;
+						term.open(pane);
+						try { fit.fit(); } catch { /* zero-size parent */ }
+						term.onData((data) => queueTerminalInput(tab, data));
+						renderTerminalTabs();
+						ensureTerminalStream();
+					} catch (err) {
+						showTerminalError(err instanceof Error ? err.message : String(err));
+					} finally {
+						terminalBusy = false;
+						renderTerminalTabs();
+					}
+				};
+
+				const closeTerminalTab = async (i) => {
+					const tab = terminalTabs[i];
+					if (!tab) return;
+					tab.aborted = true;
+					if (terminalRebootTimer !== null) { clearTimeout(terminalRebootTimer); terminalRebootTimer = null; }
+					terminalTabs.splice(i, 1);
+					if (terminalActiveTab >= terminalTabs.length) terminalActiveTab = Math.max(0, terminalTabs.length - 1);
+					fetch("/solution-explorer/terminal/" + tab.id, { method: "DELETE" }).catch(() => {});
+					try { tab.term.dispose(); } catch { /* already gone */ }
+					tab.pane.remove();
+					renderTerminalTabs();
+					fitTerminal();
+				};
+
+				const terminalCenterCol = () => {
+					if (panelFrame === null) return null;
+					for (const child of panelFrame.children) {
+						if (getComputedStyle(child).gridColumnStart === "2") return child;
+					}
+					return panelFrame.children[1] ?? null;
+				};
+
+				const placeTerminal = () => {
+					if (terminalShellEl === null) return;
+					terminalShellEl.remove();
+					if (!terminalOpen) return;
+					const centerEl = terminalCenterCol();
+					if (centerEl === null) return;
+					// The terminal lives INSIDE the center column's flow, as its
+					// last child: it spans exactly the column width (between the
+					// two sidebars) and the composer above it moves up with the
+					// reflow — no overlay, no z-index, nothing floats.
+					const cs = getComputedStyle(centerEl);
+					if (cs.display !== "flex" && cs.display !== "inline-flex" && cs.display !== "-webkit-flex") {
+						centerEl.style.display = "flex";
+						centerEl.style.flexDirection = "column";
+						const first = centerEl.firstElementChild;
+						if (first !== null) { first.style.flex = "1 1 0%"; first.style.minHeight = "0"; }
+					}
+					centerEl.appendChild(terminalShellEl);
+				};
+
+				const syncTerminalUI = () => {
+					if (terminalOpen) {
+						const shell = ensureTerminalShell();
+						// Ignore size events during the open/close animation so
+						// the height transition can't trigger resize-rebuilds.
+						termSettleUntil = Date.now() + 420;
+						shell.style.transition = "height .2s cubic-bezier(.2,.7,.3,1), opacity .16s ease";
+						shell.style.display = "flex";
+						placeTerminal();
+						ensureTerminalStream();
+						// From 0 → target height on the next frames so the CSS
+						// transition actually animates (0 was the resting state).
+						shell.style.height = "0px";
+						shell.style.opacity = "0";
+						requestAnimationFrame(() => {
+							requestAnimationFrame(() => {
+								shell.style.height = terminalHeight + "px";
+								shell.style.opacity = "1";
+								window.setTimeout(() => { fitTerminal(); scheduleTerminalReboot(); }, 260);
+							});
+						});
+					} else {
+						if (terminalShellEl !== null) {
+							terminalShellEl.style.transition = "height .18s cubic-bezier(.2,.7,.3,1), opacity .14s ease";
+							terminalShellEl.style.height = "0px";
+							terminalShellEl.style.opacity = "0";
+							// Leave the zero-height shell attached: it occupies no
+							// layout space, so the composer stays where it is.
+						}
+						// The shared stream stays open: sessions survive a panel
+						// close and reopen with their output intact. It is only
+						// torn down on page unload (see cleanups).
+					}
+				};
+
+				const toggleTerminal = () => {
+					if (!terminalSupported && !terminalOpen) { showToast(t("terminal.unsupported")); return; }
+					terminalOpen = !terminalOpen;
+					syncTerminalUI();
+					render(); // refresh rail strip / activity button active state
+					if (terminalOpen && terminalTabs.length === 0) addTerminalTab();
+				};
+				window.__solExpToggleTerminal = toggleTerminal;
+				const onWindowResize = () => { fitTerminal(); scheduleTerminalReboot(); };
+				window.addEventListener("resize", onWindowResize);
+
 				// Pull the user-editable panel config (settings page). Settings
 				// are STARTUP DEFAULTS only: they decide the initial width when
 				// the panel first appears. After that the drag owns the width —
@@ -3457,6 +3977,20 @@ async function doStage(files) {
 						if (res && res.ok && res.value) {
 							if (typeof res.value.defaultWidth === "number" && res.value.defaultWidth >= PANEL_MIN && res.value.defaultWidth <= PANEL_MAX) PANEL_WIDTH = res.value.defaultWidth;
 							if (typeof res.value.autoOpen === "boolean") panelAutoOpen = res.value.autoOpen;
+							if (typeof res.value.terminalHeight === "number") terminalHeight = res.value.terminalHeight;
+							if (typeof res.value.terminalMaxHeight === "number") terminalMaxHeight = res.value.terminalMaxHeight;
+							if (terminalHeight > terminalMaxHeight) terminalHeight = terminalMaxHeight;
+							if (typeof res.value.terminalMaxTabs === "number") terminalMaxTabs = res.value.terminalMaxTabs;
+							if (typeof res.value.terminalShell === "string") terminalShell = res.value.terminalShell;
+							// Re-apply immediately to an already-open terminal:
+							// height follows the saved value; the + button and tab
+							// cap follow maxTabs. (Shell changes affect NEW tabs.)
+							if (terminalOpen && terminalShellEl !== null) {
+								terminalShellEl.style.height = terminalHeight + "px";
+								placeTerminal();
+								window.setTimeout(fitTerminal, 60);
+								renderTerminalTabs();
+							}
 							settingsLoaded = true;
 							// Width/visibility are first-time defaults only —
 							// never after a drag. The tree, however, always
@@ -4078,6 +4612,22 @@ styleObs = new MutationObserver(syncGrid);
 
 					if (panelFrame !== null && panelCol !== null) panelCol.remove();
 
+					if (terminalShellEl !== null) terminalShellEl.remove();
+
+					if (termSizeObserver !== null) { termSizeObserver.disconnect(); termSizeObserver = null; }
+
+					stopTerminalStream();
+
+					if (termInputTimer !== null) { clearTimeout(termInputTimer); termInputTimer = null; }
+
+					if (termOutputFlush !== null) { cancelAnimationFrame(termOutputFlush); termOutputFlush = null; }
+
+					for (const tab of terminalTabs) { fetch("/solution-explorer/terminal/" + tab.id, { method: "DELETE" }).catch(() => {}); }
+
+					terminalTabs = [];
+
+					window.removeEventListener("resize", onWindowResize);
+
 					resizeHandle?.remove();
 
 					[
@@ -4119,6 +4669,8 @@ styleObs = new MutationObserver(syncGrid);
 						"__solExpTogglePanel",
 
 						"__solExpRailOpen",
+
+						"__solExpToggleTerminal",
 
 						"__solExpClearSearch",
 
@@ -5372,6 +5924,14 @@ spellCheck: false
 
 			const [showHidden, setShowHidden] = useState(false);
 
+			const [termShell, setTermShell] = useState("");
+
+			const [termHeight, setTermHeight] = useState("400");
+
+			const [termTabs, setTermTabs] = useState("8");
+
+			const [termMaxHeight, setTermMaxHeight] = useState("1000");
+
 			const [saved, setSaved] = useState(false);
 
 			useEffect(() => {
@@ -5389,6 +5949,14 @@ spellCheck: false
 					setPatterns((res.value.filterPatterns || []).join(", "));
 
 					setShowHidden(!!res.value.showHidden);
+
+					setTermShell(typeof res.value.terminalShell === "string" ? res.value.terminalShell : "");
+
+					setTermHeight(String(typeof res.value.terminalHeight === "number" ? res.value.terminalHeight : 400));
+
+					setTermTabs(String(typeof res.value.terminalMaxTabs === "number" ? res.value.terminalMaxTabs : 8));
+
+					setTermMaxHeight(String(typeof res.value.terminalMaxHeight === "number" ? res.value.terminalMaxHeight : 1000));
 
 				}).catch(() => {});
 
@@ -5410,6 +5978,14 @@ spellCheck: false
 
 					filterPatterns: patterns.split(",").map((s) => s.trim()).filter((s) => s.length > 0),
 
+					terminalShell: termShell.trim(),
+
+					terminalHeight: Math.min(480, Math.max(120, parseInt(termHeight, 10) || 400)),
+
+					terminalMaxHeight: Math.min(1080, Math.max(240, parseInt(termMaxHeight, 10) || 1000)),
+
+					terminalMaxTabs: Math.min(16, Math.max(2, parseInt(termTabs, 10) || 8)),
+
 				}) }).then((r) => r.json()).then((res) => {
 
 					if (res && res.ok) {
@@ -5421,7 +5997,7 @@ spellCheck: false
 
 			};
 
-			const reset = () => { setWidth("280"); setAutoOpen(true); setShowHidden(false); setPatterns(""); };
+			const reset = () => { setWidth("280"); setAutoOpen(true); setShowHidden(false); setPatterns(""); setTermShell(""); setTermHeight("400"); setTermTabs("8"); setTermMaxHeight("1000"); };
 
 			const field = (label, hint, control) => h("div", { className: "sol-set-field" },
 
@@ -5474,6 +6050,34 @@ spellCheck: false
 					field(t("settings.patterns.label"), t("settings.patterns.hint"),
 
 						h("input", { className: "sol-set-input", type: "text", placeholder: "*.log, temp/", value: patterns, onChange: (e) => setPatterns(e.target.value) }))),
+
+				card(t("settings.group.terminal"), t("settings.group.terminal.desc"),
+
+					field(t("settings.terminal.shell.label"), t("settings.terminal.shell.hint"),
+
+						h("select", { className: "sol-set-input", value: termShell, onChange: (e) => setTermShell((e.target as HTMLSelectElement).value) },
+
+							h("option", { value: "" }, t("settings.terminal.shell.auto")),
+
+							h("option", { value: "pwsh" }, "pwsh"),
+
+							h("option", { value: "powershell" }, "powershell"),
+
+							h("option", { value: "cmd" }, "cmd"),
+
+							h("option", { value: "bash" }, "bash"))),
+
+					field(t("settings.terminal.height.label"), t("settings.terminal.height.hint"),
+
+						h("input", { className: "sol-set-input", type: "number", min: 120, max: 480, value: termHeight, onChange: (e) => setTermHeight(e.target.value) })),
+
+					field(t("settings.terminal.maxHeight.label"), t("settings.terminal.maxHeight.hint"),
+
+						h("input", { className: "sol-set-input", type: "number", min: 240, max: 1080, value: termMaxHeight, onChange: (e) => setTermMaxHeight(e.target.value) })),
+
+					field(t("settings.terminal.tabs.label"), t("settings.terminal.tabs.hint"),
+
+						h("input", { className: "sol-set-input", type: "number", min: 2, max: 16, value: termTabs, onChange: (e) => setTermTabs(e.target.value) }))),
 
 				h("div", { className: "sol-set-actions" },
 

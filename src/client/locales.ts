@@ -17,6 +17,7 @@ const zh = {
   'toggle.panel': '切换面板',
   'panel.editor': '编辑',
   'panel.editor.title': '编辑器',
+  'panel.terminal': '终端',
 
   // File explorer
   'file.search': '搜索文件...',
@@ -42,6 +43,15 @@ const zh = {
   'error.read': '读取文件失败',
   'context.copyPath': '复制路径',
   'context.reveal': '在文件管理器中显示',
+
+  // Terminal
+  'terminal.new': '新建终端',
+  'terminal.close': '关闭终端',
+  'terminal.empty': '没有终端，点击 + 新建',
+  'terminal.unsupported': '当前环境不支持嵌入式终端',
+  'terminal.startFail': '无法启动终端：',
+  'terminal.shellNotFound': '找不到 shell 可执行文件（请检查设置里的「默认 Shell」）',
+  'terminal.rebootFail': '终端重建失败',
 
   // SCM
   'scm.staged': '暂存变更',
@@ -147,6 +157,17 @@ const zh = {
   'settings.group.appearance.desc': '右侧面板的宽度与自动打开行为。',
   'settings.group.tree': '文件树',
   'settings.group.tree.desc': '控制文件树中显示的内容。',
+  'settings.group.terminal': '终端',
+  'settings.group.terminal.desc': '底部终端面板的行为（ConPTY，需要 DSH subprocess 服务）。',
+  'settings.terminal.shell.label': '默认 Shell',
+  'settings.terminal.shell.hint': 'pwsh / powershell / cmd / bash；留空按平台自动选择',
+  'settings.terminal.shell.auto': '自动',
+  'settings.terminal.height.label': '终端高度 (px)',
+  'settings.terminal.height.hint': '120–480（可在面板上拖拽调整）',
+  'settings.terminal.maxHeight.label': '终端最大高度 (px)',
+  'settings.terminal.maxHeight.hint': '240–1080（拖拽上限）',
+  'settings.terminal.tabs.label': '终端标签上限',
+  'settings.terminal.tabs.hint': '2–16',
   'settings.hidden.label': '显示隐藏文件',
   'settings.hidden.hint': '显示以 . 开头的文件（.git 仍隐藏）',
 }
@@ -160,6 +181,7 @@ const en: Record<SolutionExplorerKey, string> = {
   'toggle.panel': 'Toggle panel',
   'panel.editor': 'Edit',
   'panel.editor.title': 'Editor',
+  'panel.terminal': 'Terminal',
 
   'file.search': 'Search files...',
   'file.open': 'Open file',
@@ -184,6 +206,15 @@ const en: Record<SolutionExplorerKey, string> = {
   'error.read': 'Failed to read file',
   'context.copyPath': 'Copy path',
   'context.reveal': 'Reveal in file explorer',
+
+  // Terminal
+  'terminal.new': 'New terminal',
+  'terminal.close': 'Close terminal',
+  'terminal.empty': 'No terminals — press + to create one',
+  'terminal.unsupported': 'Embedded terminal is not supported in this environment',
+  'terminal.startFail': 'Failed to start terminal: ',
+  'terminal.shellNotFound': 'Shell executable not found (check "Default shell" in settings)',
+  'terminal.rebootFail': 'Terminal rebuild failed',
 
   'scm.staged': 'Staged Changes',
   'scm.staged.none': 'No staged changes',
@@ -283,6 +314,17 @@ const en: Record<SolutionExplorerKey, string> = {
   'settings.group.appearance.desc': 'Right panel width and auto-open behavior.',
   'settings.group.tree': 'File tree',
   'settings.group.tree.desc': 'Controls what the file tree shows.',
+  'settings.group.terminal': 'Terminal',
+  'settings.group.terminal.desc': 'Bottom terminal panel behavior (ConPTY via the dsh subprocess service).',
+  'settings.terminal.shell.label': 'Default shell',
+  'settings.terminal.shell.hint': 'pwsh / powershell / cmd / bash; empty = platform default',
+  'settings.terminal.shell.auto': 'Auto',
+  'settings.terminal.height.label': 'Terminal height (px)',
+  'settings.terminal.height.hint': '120–480 (draggable on the panel)',
+  'settings.terminal.maxHeight.label': 'Max terminal height (px)',
+  'settings.terminal.maxHeight.hint': '240–1080 (drag limit)',
+  'settings.terminal.tabs.label': 'Max terminal tabs',
+  'settings.terminal.tabs.hint': '2–16',
   'settings.hidden.label': 'Show hidden files',
   'settings.hidden.hint': 'Show dot-prefixed files (.git stays hidden)',
 }

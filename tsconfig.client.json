@@ -18,5 +18,5 @@
     "rootDir": "src/client",
     "sourceMap": true
   },
-  "include": ["src/client/index.ts", "src/client/locales.ts", "src/client/highlight.ts"]
+  "include": ["src/client/index.ts", "src/client/locales.ts", "src/client/highlight.ts", "src/client/xterm-css.ts"]
 }
