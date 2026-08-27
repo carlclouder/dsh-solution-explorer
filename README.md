@@ -1,21 +1,20 @@
-# dsh-solution-explorer
+<div align="center">
+
+# 🗂️ Solution Explorer for DSH
+
+**VS Code-style file explorer plus full source control for the DeepSeek Harness (DSH) Web GUI right sidebar.**
+
+[![npm](https://img.shields.io/npm/v/dsh-solution-explorer)](https://www.npmjs.com/package/dsh-solution-explorer)
+[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
+[![dshfind](https://dshfind.com/api/badge/xiaoksio/dsh-solution-explorer?lang=zh)](https://dshfind.com/zh/plugins/xiaoksio/dsh-solution-explorer?ref=badge)
+[![license](https://img.shields.io/github/license/xiaoksio/dsh-solution-explorer)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/xiaoksio/dsh-solution-explorer)](https://github.com/xiaoksio/dsh-solution-explorer)
+
+[English](README.md) · [简体中文](README.zh.md)
 
 ![dsh-solution-explorer demo](demo.gif)
 
-[English](README.md) | [中文](README.zh.md)
-
-[![npm](https://img.shields.io/npm/v/dsh-solution-explorer)](https://www.npmjs.com/package/dsh-solution-explorer)
-[![npm downloads](https://img.shields.io/npm/dm/dsh-solution-explorer)](https://www.npmjs.com/package/dsh-solution-explorer)
-[![GitHub stars](https://img.shields.io/github/stars/xiaoksio/dsh-solution-explorer)](https://github.com/xiaoksio/dsh-solution-explorer)
-[![awesome](https://awesome.re/mentioned-badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![license](https://img.shields.io/github/license/xiaoksio/dsh-solution-explorer)](LICENSE)
-
-Right-sidebar plugin for the DSH Web GUI: a VS Code-style file explorer plus
-source control (git status, stage/unstage/discard, commit, diff, commit graph,
-sync fetch/pull/push, branch/remote management, git init, multi-repo switch,
-color-coded file status, file-type icons, image preview) with an editable
-full-file diff view, a syntax-highlighted editor (15 languages), file operations
-(new/move/copy/delete), and save.
+</div>
 
 ## Features
 
@@ -67,6 +66,14 @@ full-file diff view, a syntax-highlighted editor (15 languages), file operations
 | ![File Explorer](assets/screenshot-1-file-explorer.png) | ![Source Control](assets/screenshot-2-source-control.png) | ![Diff](assets/screenshot-3-diff.png) |
 
 ## Installation
+
+> [!WARNING]
+> This is a third-party community plugin. Installing it runs its code on your
+> machine with your own permissions. It can read, modify, and delete files and
+> run git operations (including destructive ones such as discard and delete)
+> inside your session workspace. Review the source before use and back up
+> important work first. You are responsible for what this plugin does with your
+> repositories.
 
 ### From dsh-market (GUI)
 

@@ -1,16 +1,20 @@
-# dsh-solution-explorer
+<div align="center">
+
+# 🗂️ Solution Explorer for DSH
+
+**给 DeepSeek Harness (DSH) Web GUI 右侧边栏的 VS Code 风格文件浏览器 + 完整源代码管理。**
+
+[![npm](https://img.shields.io/npm/v/dsh-solution-explorer)](https://www.npmjs.com/package/dsh-solution-explorer)
+[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
+[![dshfind](https://dshfind.com/api/badge/xiaoksio/dsh-solution-explorer?lang=zh)](https://dshfind.com/zh/plugins/xiaoksio/dsh-solution-explorer?ref=badge)
+[![license](https://img.shields.io/github/license/xiaoksio/dsh-solution-explorer)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/xiaoksio/dsh-solution-explorer)](https://github.com/xiaoksio/dsh-solution-explorer)
+
+[English](README.md) · [简体中文](README.zh.md)
 
 ![dsh-solution-explorer demo](demo.gif)
 
-[English](README.md) | [中文](README.zh.md)
-
-[![npm](https://img.shields.io/npm/v/dsh-solution-explorer)](https://www.npmjs.com/package/dsh-solution-explorer)
-[![npm downloads](https://img.shields.io/npm/dm/dsh-solution-explorer)](https://www.npmjs.com/package/dsh-solution-explorer)
-[![GitHub stars](https://img.shields.io/github/stars/xiaoksio/dsh-solution-explorer)](https://github.com/xiaoksio/dsh-solution-explorer)
-[![awesome](https://awesome.re/mentioned-badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![license](https://img.shields.io/github/license/xiaoksio/dsh-solution-explorer)](LICENSE)
-
-DSH Web GUI 右侧边栏插件：VS Code 风格文件浏览器加源代码管理（git 状态、暂存/取消暂存/放弃变更、提交、差异、提交图形、同步抓取/拉取/推送、分支/远程管理、Git 初始化、多仓库切换、文件状态着色、文件类型图标、图片预览），含可编辑全文差异视图、语法高亮编辑器（15 种语言）、文件操作（新建/移动/复制/删除）与保存。
+</div>
 
 ## 功能
 
@@ -31,6 +35,9 @@ DSH Web GUI 右侧边栏插件：VS Code 风格文件浏览器加源代码管理
 | ![文件浏览器](assets/screenshot-1-file-explorer.png) | ![源代码管理](assets/screenshot-2-source-control.png) | ![变更对比](assets/screenshot-3-diff.png) |
 
 ## 安装
+
+> [!WARNING]
+> 这是第三方社区插件。安装后，其代码将以你自己的权限在你的机器上运行。它可以在会话工作区内读取、修改、删除文件，并执行 git 操作（包括"放弃变更""删除"等破坏性操作）。使用前请审阅源代码，并先备份重要内容。插件对你仓库所做的一切，责任由你自行承担。
 
 ### 从 dsh-market 安装（GUI）
 
