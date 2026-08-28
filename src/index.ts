@@ -878,21 +878,49 @@ export function apply(ctx: Context, config: Config = {}): void {
             const root = query.root || ''
             const hash = query.hash || ''
             if (!root || !hash) { json(res, { ok: false, error: { message: 'root and hash required' } }); return }
-            const result = git(['show', '--name-only', '--format=%H|%P|%h|%an|%ae|%at|%s', hash], root)
+            // One call carries both the per-file status letters (M/A/D, and
+            // rename/copy rows carry "old<TAB>new") and the shortstat summary
+            // line for the tooltip ("N files changed, X insertions(+), Y deletions(-)").
+            const result = git(['show', '--name-status', '--shortstat', '--format=%H|%P|%h|%an|%ae|%at|%s', hash], root)
             if (!result.ok) { json(res, { ok: false, error: { message: result.error } }); return }
             const lines = result.stdout.split('\n')
             const head = lines[0] || ''
             const parts = head.split('|')
-            // --name-only quotes paths with spaces ("AGENTS copy.md") — decode
+            // Paths with spaces are quoted by git ("AGENTS copy.md") — decode
             // them so the list matches the tree/SCM path display.
-            const files = lines.slice(1).filter(Boolean).map((f) => unquoteGitPath(f.trim()))
+            const files: Array<{ status: string; path: string; oldPath?: string }> = []
+            const stats = { files: 0, insertions: 0, deletions: 0 }
+            for (const line of lines.slice(1)) {
+              const trimmed = line.trim()
+              if (!trimmed) continue
+              const statMatch = trimmed.match(/^(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?$/)
+              if (statMatch) {
+                stats.files = parseInt(statMatch[1], 10)
+                stats.insertions = parseInt(statMatch[2] || '0', 10)
+                stats.deletions = parseInt(statMatch[3] || '0', 10)
+                continue
+              }
+              const segs = trimmed.split('\t')
+              if (segs.length < 2) continue
+              const status = (segs[0] || 'M').slice(0, 1)
+              if (segs.length >= 3 && /^(R|C)/.test(segs[0])) {
+                // Rename/copy: "R100<TAB>old<TAB>new" — keep both paths.
+                files.push({ status, path: unquoteGitPath(segs[2]), oldPath: unquoteGitPath(segs[1]) })
+              } else {
+                files.push({ status, path: unquoteGitPath(segs[1]) })
+              }
+            }
+            // Full message (subject + body) for the hover tooltip.
+            const bodyResult = git(['show', '-s', '--format=%B', hash], root)
             json(res, {
               ok: true,
               value: {
                 hash: parts[0] || '', parents: (parts[1] || '').split(' ').filter(Boolean),
                 shortHash: parts[2] || '', author: parts[3] || '',
                 email: parts[4] || '', timestamp: parseInt(parts[5] || '0', 10) * 1000,
-                message: parts.slice(6).join('|') || '', files,
+                message: parts.slice(6).join('|') || '',
+                body: bodyResult.ok ? bodyResult.stdout.replace(/\n+$/, '') : '',
+                files, stats,
               },
             })
             return

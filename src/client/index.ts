@@ -466,6 +466,23 @@ declare global {
 .sol-exp-commit-detail-close:hover { color:var(--dsw-alias-label-primary,#d4d4d4); }
 .sol-exp-commit-detail-btn { background:transparent; border:1px solid var(--dsw-alias-border-l2,#333); color:var(--dsw-alias-label-secondary,#969696); border-radius:4px; padding:2px 8px; font-size:11px; cursor:pointer; }
 .sol-exp-commit-detail-btn:hover { background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.1)); color:var(--dsw-alias-label-primary,#d4d4d4); }
+.sol-exp-git-C { color:#58a6ff; } .sol-exp-git-T { color:#e2b714; }
+/* Inline changed-file list expanded below a clicked commit row. */
+.sol-exp-commit-detail-inline { margin:0 4px 6px; border:1px solid var(--dsw-alias-border-l2,#333); border-left:3px solid var(--dsw-alias-button-info-fill,#3964fe); border-radius:6px; background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.06)); font-size:12px; padding:6px 8px; }
+.sol-exp-commit-file-row { display:flex; align-items:center; gap:6px; padding:2px 2px; border-radius:4px; }
+.sol-exp-commit-file-row:hover { background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.06)); }
+.sol-exp-commit-file-icon { flex:none; display:inline-flex; width:16px; }
+.sol-exp-commit-file-path { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--dsw-alias-label-secondary,#969696); font-family:monospace; font-size:11px; }
+.sol-exp-commit-file-status { flex:none; font-size:11px; font-weight:700; width:14px; text-align:center; }
+.sol-exp-commit-detail-footer { display:flex; justify-content:flex-end; padding-top:4px; }
+/* Hover tooltip for commit rows. */
+.sol-exp-commit-tooltip { position:fixed; z-index:100001; max-width:340px; max-height:280px; overflow-y:auto; padding:8px 12px; border-radius:8px; background:var(--dsw-alias-bg-overlay,var(--dsw-alias-bg-layer-3,#1e1e1e)); border:1px solid var(--dsw-alias-border-l2,#333); box-shadow:0 4px 16px rgba(0,0,0,0.35); font-size:12px; color:var(--dsw-alias-label-primary,#d4d4d4); }
+.sol-exp-commit-tip-msg { white-space:pre-wrap; word-break:break-word; color:var(--dsw-alias-label-primary,#d4d4d4); }
+.sol-exp-commit-tip-stats { margin-top:6px; color:var(--dsw-alias-label-secondary,#969696); }
+.sol-exp-commit-tip-meta { margin-top:4px; color:var(--dsw-alias-label-tertiary,#6e6e6e); }
+.sol-exp-commit-tip-hash { margin-top:6px; display:flex; align-items:center; gap:8px; }
+.sol-exp-commit-tip-link { color:var(--dsw-alias-label-link,#58a6ff); text-decoration:none; }
+.sol-exp-commit-tip-link:hover { text-decoration:underline; }
 .sol-exp-scm-status { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:4px; font-size:11px; font-weight:700; background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,0.06)); }
 .sol-exp-scm-host { flex:1; min-height:0; display:flex; flex-direction:column; }
 .sol-exp-scm-split { flex:1; min-height:0; height:100%; display:flex; flex-direction:column; }
@@ -800,6 +817,18 @@ function _notifyDiffListeners() {
 				let graphPrevLanes = [];
 				let graphDetailOpen = "";
 				let graphColorInUse = new Set();
+				// Commit-detail cache (hash -> detail) shared by the inline
+				// expansion and the hover tooltip; cleared on session change.
+				let commitDetailCache = new Map();
+				// Hover tooltip state for commit rows (custom tooltip replaces
+				// the native title attribute).
+				let commitTipEl: HTMLElement | null = null;
+				let commitTipHash = "";       // hash currently shown in the tooltip
+				let commitTipPending = "";     // hash queued to show after hover delay
+				let commitTipShowTimer: any = 0;
+let commitTipHideTimer: any = 0;
+				// Remotes fetch guard for the "open on GitHub" tooltip link.
+				let remotesResolved = false;
 				let remotePanelOpen = false;
 				let branchPanelOpen = false;
 				let remotesList = [];
@@ -846,6 +875,8 @@ function _notifyDiffListeners() {
 					}
 
 					activeEl.innerHTML = buildHTML();
+					hideCommitTooltip();
+					reapplyCommitDetailInline();
 
 				}
 
@@ -958,6 +989,8 @@ function _notifyDiffListeners() {
 				window.__solExpSelectRepo = (path) => {
 					if (!path || path === activeRepo) return;
 					activeRepo = path;
+					commitDetailCache.clear();
+					remotesResolved = false;
 					loadGitStatus();
 					loadRecentCommits();
 					// Update the repository selection highlight and the change
@@ -1217,35 +1250,200 @@ function renderGraphRow(commit) {
   for (const f of forks) graphLanes.push({ hash: f.hash, color: f.color });
   return svg;
 }
+// ── Commit detail cache (shared by inline expansion & tooltip) ──────────
+
+async function getCommitDetail(hash) {
+  if (commitDetailCache.has(hash)) return commitDetailCache.get(hash);
+  const result = await (await fetch(`/solution-explorer/git-commit-detail?root=${encodeURIComponent(gitRoot())}&hash=${encodeURIComponent(hash)}`)).json();
+  if (!result.ok || !result.value) throw new Error(result.error?.message || "加载失败");
+  commitDetailCache.set(hash, result.value);
+  return result.value;
+}
+
+// ── Inline changed-file list (expanded below a clicked commit row) ─────
+
+function commitDetailInlineHTML(c) {
+  const zh = document.documentElement.lang?.startsWith("zh");
+  const files = (c.files || []).slice(0, 200).map((f) => {
+    const cls = gitStatusClass(f.status);
+    const label = f.oldPath ? `${f.oldPath} → ${f.path}` : f.path;
+    return `<div class="sol-exp-commit-file-row" title="${escapeHtml(label)}"><span class="sol-exp-commit-file-icon">${fileIcon(f.path)}</span><span class="sol-exp-commit-file-path">${escapeHtml(label)}</span><span class="sol-exp-commit-file-status sol-exp-git-${cls}">${f.status}</span></div>`;
+  }).join("");
+  return `${files || `<div class="sol-exp-commit-file-row" style="color:var(--dsw-alias-label-tertiary,#6e6e6e)">${zh ? "（无文件信息，合并提交不列出文件）" : "(no file list — merge commit)"}</div>`}
+  <div class="sol-exp-commit-detail-footer"><button class="sol-exp-commit-detail-btn" onclick="window.__solExpCommitCheckout('${c.hash}')">Checkout</button></div>`;
+}
+
+function ensureCommitDetailInline(hash, c) {
+  const list = document.getElementById("sol-exp-commits-list");
+  if (!list) return;
+  // Remove any stale inline block before inserting the new one.
+  list.querySelectorAll(".sol-exp-commit-detail-inline").forEach((el) => el.remove());
+  if (!hash) return;
+  const row = list.querySelector(`.sol-exp-commit-item[data-hash="${hash}"]`);
+  if (!row) return;
+  const block = document.createElement("div");
+  block.className = "sol-exp-commit-detail-inline";
+  block.setAttribute("data-hash", hash);
+  block.innerHTML = c
+    ? commitDetailInlineHTML(c)
+    : `<div style="padding:2px 0;color:var(--dsw-alias-label-tertiary,#6e6e6e)">${t("loading")}</div>`;
+  row.insertAdjacentElement("afterend", block);
+  // Ensure the expanded block is visible (the scrollable list may have
+  // the block partially hidden below the fold).
+  block.scrollIntoView({ block: "nearest", behavior: "instant" });
+}
+
+async function reapplyCommitDetailInline() {
+  const hash = graphDetailOpen;
+  if (!hash) return;
+  const list = document.getElementById("sol-exp-commits-list");
+  if (!list || !list.querySelector(`.sol-exp-commit-item[data-hash="${hash}"]`)) return;
+  // Capture cache state BEFORE touching the DOM — a concurrent fetch
+  // from __solExpCommitDetail may populate the cache between the
+  // ensureCommitDetailInline call and the has() check below, which
+  // would leave the loading placeholder stuck forever.
+  const cached = commitDetailCache.get(hash);
+  ensureCommitDetailInline(hash, cached || null);
+  if (!cached) {
+    try {
+      const c = await getCommitDetail(hash);
+      if (graphDetailOpen === hash) ensureCommitDetailInline(hash, c);
+    } catch { /* row already shows loading placeholder */ }
+  }
+}
+
 window.__solExpCommitDetail = async (hash) => {
+  hideCommitTooltip();
   if (!hash) return;
   graphDetailOpen = graphDetailOpen === hash ? "" : hash;
   const rows = document.querySelectorAll(".sol-exp-commit-item");
   rows.forEach((r) => r.classList.toggle("selected", r.getAttribute("data-hash") === graphDetailOpen));
-  const detailEl = document.getElementById("sol-exp-commit-detail");
-  if (!detailEl) return;
-  if (!graphDetailOpen) { detailEl.style.display = "none"; return; }
-  detailEl.style.display = "block";
-  detailEl.innerHTML = '<div style="color:var(--dsw-alias-label-secondary,#969696)">加载中…</div>';
+  if (!graphDetailOpen) { ensureCommitDetailInline("", null); return; }
+  ensureCommitDetailInline(hash, null);
   try {
-    const result = await (await fetch(`/solution-explorer/git-commit-detail?root=${encodeURIComponent(gitRoot())}&hash=${encodeURIComponent(hash)}`)).json();
-    if (!result.ok || !result.value) throw new Error(result.error?.message || "加载失败");
-    const c = result.value;
-    const parentsHtml = (c.parents || []).map((p) => `<span style="font-family:monospace;color:var(--dsw-alias-label-tertiary,#6e6e6e)">${p.substring(0, 8)}</span>`).join(" ") || "—";
-    const filesHtml = (c.files || []).slice(0, 60).map((f) => `<div class="sol-exp-commit-detail-file" title="${f.replace(/"/g, "&quot;")}">${escapeHtml(f)}</div>`).join("") || '<div style="padding-left:52px;color:var(--dsw-alias-label-tertiary,#6e6e6e)">（无文件）</div>';
-    detailEl.innerHTML = `
-      <div class="sol-exp-commit-detail-row"><button class="sol-exp-commit-detail-close" title="关闭" onclick="window.__solExpCommitDetail('${hash}')">✕</button></div>
-      <div class="sol-exp-commit-detail-row"><span class="sol-exp-commit-detail-label">commit</span><span class="sol-exp-commit-detail-val" style="font-family:monospace">${c.hash}</span></div>
-      <div class="sol-exp-commit-detail-row"><span class="sol-exp-commit-detail-label">author</span><span class="sol-exp-commit-detail-val">${escapeHtml(c.author)} &lt;${escapeHtml(c.email)}&gt;</span></div>
-      <div class="sol-exp-commit-detail-row"><span class="sol-exp-commit-detail-label">date</span><span class="sol-exp-commit-detail-val">${new Date(c.timestamp).toLocaleString()}</span></div>
-      <div class="sol-exp-commit-detail-row"><span class="sol-exp-commit-detail-label">message</span><span class="sol-exp-commit-detail-val">${escapeHtml(c.message)}</span></div>
-      <div class="sol-exp-commit-detail-row"><span class="sol-exp-commit-detail-label">parents</span><span class="sol-exp-commit-detail-val">${parentsHtml}</span></div>
-      <div style="padding-top:4px"><span class="sol-exp-commit-detail-label" style="display:inline-block;padding-bottom:2px">files</span><div class="sol-exp-commit-files" style="max-height:140px;overflow-y:auto">${filesHtml}</div></div>
-      <div style="padding-top:6px"><button class="sol-exp-commit-detail-btn" onclick="window.__solExpCommitCheckout('${hash}')">Checkout</button></div>`;
+    const c = await getCommitDetail(hash);
+    if (graphDetailOpen === hash) ensureCommitDetailInline(hash, c);
   } catch (err) {
-    detailEl.innerHTML = `<div style="color:var(--dsw-color-error,#f48771)">${escapeHtml(err instanceof Error ? err.message : String(err))}</div>`;
+    if (graphDetailOpen === hash) {
+      const list = document.getElementById("sol-exp-commits-list");
+      const block = list?.querySelector(".sol-exp-commit-detail-inline");
+      if (block) block.innerHTML = `<div style="color:var(--dsw-color-error,#f48771)">${escapeHtml(err instanceof Error ? err.message : String(err))}</div>`;
+    }
   }
 };
+
+// ── Hover tooltip for commit rows ────────────────────────────────────────
+
+async function githubCommitUrl(hash) {
+  if (!remotesResolved && remotesList.length === 0) { await loadRemotes(); remotesResolved = true; }
+  const r = remotesList.find((x) => x.type === "fetch" && x.name === "origin") || remotesList.find((x) => x.type === "fetch");
+  if (!r) return "";
+  const url = r.url || "";
+  // SSH: git@github.com(-something):user/repo.git
+  // HTTPS: https://github.com/user/repo.git
+  let m = url.match(/^git@([^:]+):(.+?)(?:\.git)?$/) || url.match(/^https?:\/\/([^/]+)\/(.+?)(?:\.git)?$/);
+  if (!m || !/^github\.com/.test(m[1])) return "";
+  return `https://github.com/${m[2]}/commit/${hash}`;
+}
+
+function commitTooltipHTML(c) {
+  const zh = document.documentElement.lang?.startsWith("zh");
+  const body = (c.body || c.message || "").trim();
+  const s = c.stats || { files: 0, insertions: 0, deletions: 0 };
+  let statsText = "";
+  if (c.files && c.files.length) {
+    statsText = zh
+      ? `已更改 ${s.files} 个文件`
+      : `${s.files} file${s.files === 1 ? "" : "s"} changed`;
+    if (s.insertions) statsText += zh ? `，${s.insertions} 行插入(+)` : `, ${s.insertions} insertion${s.insertions === 1 ? "" : "s"}(+)`;
+    if (s.deletions) statsText += zh ? `，${s.deletions} 行删除(-)` : `, ${s.deletions} deletion${s.deletions === 1 ? "" : "s"}(-)`;
+  }
+  const date = new Date(c.timestamp).toLocaleString();
+  const link = githubCommitUrl(c.hash);
+  return `
+    <div class="sol-exp-commit-tip-msg">${escapeHtml(body)}</div>
+    ${statsText ? `<div class="sol-exp-commit-tip-stats">${statsText}</div>` : ""}
+    <div class="sol-exp-commit-tip-meta">${escapeHtml(c.author)} &lt;${escapeHtml(c.email)}&gt; · ${date}</div>
+    <div class="sol-exp-commit-tip-hash"><span class="sol-exp-commit-hash">${c.shortHash}</span>${link ? ` <a class="sol-exp-commit-tip-link" href="${link}" target="_blank" rel="noreferrer">↗ ${zh ? "在 GitHub 上打开" : "Open on GitHub"}</a>` : ""}</div>`;
+}
+
+function buildCommitTooltip() {
+  if (commitTipEl) return;
+  commitTipEl = document.createElement("div");
+  commitTipEl.className = "sol-exp-commit-tooltip";
+  commitTipEl.style.display = "none";
+  document.body.appendChild(commitTipEl);
+}
+
+function positionCommitTooltip(row) {
+  const el = commitTipEl;
+  if (!el || !row) return;
+  el.style.visibility = "hidden";
+  el.style.display = "block";
+  el.style.maxWidth = "340px";
+  const tw = el.offsetWidth, th = el.offsetHeight;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const margin = 8;
+  const rect = row.getBoundingClientRect();
+  let x: number, y: number;
+  // Prefer left of the row (not blocking the records below).
+  if (rect.left - tw - 6 >= margin) {
+    x = rect.left - tw - 6;
+    y = rect.top;
+  } else if (rect.right + 6 + tw <= vw - margin) {
+    x = rect.right + 6;
+    y = rect.top;
+  } else {
+    // Fallback: below the row.
+    x = Math.min(Math.max(margin, rect.left), vw - tw - margin);
+    y = rect.bottom + 6;
+  }
+  // Clamp vertically.
+  if (y + th > vh - margin) y = Math.max(margin, rect.top - th - 6);
+  if (y < margin) y = margin;
+  el.style.left = x + "px";
+  el.style.top = y + "px";
+  el.style.visibility = "visible";
+}
+
+function hideCommitTooltip() {
+  if (commitTipShowTimer) { clearTimeout(commitTipShowTimer); commitTipShowTimer = 0; }
+  if (commitTipHideTimer) { clearTimeout(commitTipHideTimer); commitTipHideTimer = 0; }
+  commitTipHash = "";
+  commitTipPending = "";
+  if (commitTipEl) commitTipEl.style.display = "none";
+}
+
+function scheduleHideCommitTooltip() {
+  if (commitTipHideTimer) clearTimeout(commitTipHideTimer);
+  commitTipHideTimer = setTimeout(hideCommitTooltip, 200);
+}
+
+function cancelHideCommitTooltip() {
+  if (commitTipHideTimer) { clearTimeout(commitTipHideTimer); commitTipHideTimer = 0; }
+}
+
+async function showCommitTooltip(row, hash) {
+  commitTipHash = hash;
+  buildCommitTooltip();
+  try {
+    const c = await getCommitDetail(hash);
+    if (commitTipHash !== hash) return;
+    commitTipEl!.innerHTML = commitTooltipHTML(c);
+    // Resolve the GitHub link promise to fill in the real URL.
+    githubCommitUrl(hash).then((link) => {
+      if (commitTipHash !== hash || !commitTipEl) return;
+      const linkEl = commitTipEl.querySelector(".sol-exp-commit-tip-link");
+      if (linkEl && link) linkEl.setAttribute("href", link);
+      else if (linkEl && !link) linkEl.remove();
+    });
+    positionCommitTooltip(row);
+  } catch {
+    if (commitTipHash !== hash) return;
+    commitTipEl!.innerHTML = `<div style="color:var(--dsw-alias-label-secondary,#969696)">${t("loading")}</div>`;
+    positionCommitTooltip(row);
+  }
+}
 window.__solExpCommitCheckout = async (hash) => {
   if (!hash) return;
   const zh = document.documentElement.lang?.startsWith("zh");
@@ -1433,7 +1631,7 @@ function commitsListHTML() {
 									const items = result.value.map((commit) => {
 										const graph = renderGraphRow(commit);
 										const selected = graphDetailOpen === commit.hash ? " selected" : "";
-										return `<div class="sol-exp-commit-item${selected}" data-hash="${commit.hash}" title="${commit.message.replace(/"/g, "&quot;")}" onclick="window.__solExpCommitDetail('${commit.hash}')"><span class="sol-exp-graph">${graph}</span><span class="sol-exp-commit-hash">${commit.shortHash}</span><span class="sol-exp-commit-msg">${escapeHtml(commit.message.substring(0, 60))}${commit.message.length > 60 ? "..." : ""}</span><span class="sol-exp-commit-date">${relTime(commit.timestamp)}</span></div>`;
+										return `<div class="sol-exp-commit-item${selected}" data-hash="${commit.hash}" onclick="window.__solExpCommitDetail('${commit.hash}')"><span class="sol-exp-graph">${graph}</span><span class="sol-exp-commit-hash">${commit.shortHash}</span><span class="sol-exp-commit-msg">${escapeHtml(commit.message.substring(0, 60))}${commit.message.length > 60 ? "..." : ""}</span><span class="sol-exp-commit-date">${relTime(commit.timestamp)}</span></div>`;
 									}).join("");
 									if (commitsPage === 0) commitsList.innerHTML = items;
 									else commitsList.insertAdjacentHTML("beforeend", items);
@@ -1990,8 +2188,6 @@ async function doStage(files) {
           <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('commits')"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" style="transform:rotate(90deg)"><path d="M4.25 2.82782L4.25 11.1722C4.25 11.6622 4.84243 11.9076 5.18891 11.5611L9.36109 7.38891C9.57588 7.17412 9.57588 6.82588 9.36109 6.61109L5.18891 2.43891C4.84243 2.09243 4.25 2.33782 4.25 2.82782Z"/></svg>${t("scm.repository.commits")}<span class="sol-exp-scm-header-actions"></span><span class="sol-exp-scm-section-count"></span></div>
 
           <div style="padding:4px 12px 8px 24px;flex:1;min-height:0;display:flex;flex-direction:column">
-
-            <div id="sol-exp-commit-detail" style="display:none"></div>
 
             <div id="sol-exp-commits-list" style="margin-top:6px;font-size:12px;color:var(--dsw-alias-label-tertiary);flex:1;min-height:0;overflow-y:auto" onscroll="window.__solExpCommitsScroll(event)">${commitsListHTML()}</div>
 
@@ -3033,6 +3229,37 @@ async function doStage(files) {
 
 				document.addEventListener("click", hideContextMenu);
 
+				// ── Commit-row hover tooltip (event delegation) ─────────────
+				document.addEventListener("mouseover", (e) => {
+					const target = e.target;
+					if (!(target instanceof Element)) return;
+					// Hovering the tooltip itself keeps it alive.
+					if (target.closest(".sol-exp-commit-tooltip")) { cancelHideCommitTooltip(); return; }
+					const row = target.closest(".sol-exp-commit-item");
+					if (row && row.closest("#sol-exp-commits-list")) {
+						cancelHideCommitTooltip();
+						const hash = row.getAttribute("data-hash") || "";
+						if (hash && hash !== commitTipPending) {
+							if (commitTipShowTimer) clearTimeout(commitTipShowTimer);
+							commitTipPending = hash;
+							commitTipShowTimer = setTimeout(() => {
+								commitTipShowTimer = 0;
+								if (commitTipPending === hash) showCommitTooltip(row, hash);
+							}, 350);
+						}
+						return;
+					}
+					scheduleHideCommitTooltip();
+				});
+				document.addEventListener("mouseout", (e) => {
+					const target = e.target;
+					if (!(target instanceof Element)) return;
+					const row = target.closest(".sol-exp-commit-item");
+					if (row && !row.contains(e.relatedTarget as Node)) scheduleHideCommitTooltip();
+				});
+				// Hide tooltip on any scroll (row position is stale after scroll).
+				document.addEventListener("scroll", hideCommitTooltip, true);
+
 				const dragGuard = (e) => {
 
 					if (activeEl?.contains(e.target)) e.preventDefault();
@@ -3051,7 +3278,7 @@ async function doStage(files) {
 
 					const el = e.target as HTMLElement;
 
-					if (el.closest(".sol-exp-tree-node") || el.closest(".sol-exp-search-item") || el.closest(".sol-exp-scm-item") || el.closest(".sol-exp-context-menu")) return;
+					if (el.closest(".sol-exp-tree-node") || el.closest(".sol-exp-search-item") || el.closest(".sol-exp-scm-item") || el.closest(".sol-exp-context-menu") || el.closest(".sol-exp-commit-item") || el.closest(".sol-exp-commit-detail-inline")) return;
 
 					if (selectedPaths.size || selectedPath) {
 
@@ -4377,6 +4604,8 @@ styleObs = new MutationObserver(syncGrid);
 					commitsAllLoaded = false;
 
 					commitsLoading = false;
+					commitDetailCache.clear();
+					remotesResolved = false;
 
 					loading = root !== "";
 

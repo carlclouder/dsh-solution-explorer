@@ -29,8 +29,9 @@
   branch info bar. **Diff view**: full-file side-by-side compare with an
   editable right column (Enter splits lines, backspace/delete merges, NBSP
   placeholders), Ctrl+S to save. **Commit Graph**: an SVG history view with
-  branch lanes, merge lines and per-commit details (author, date, parents,
-  changed files) plus checkout. **Sync**: fetch / pull / push / sync (pull +
+  branch lanes and merge lines; click a commit to expand its changed files
+  (with file-type icons and status letters M/A/D/R) below the row, hover for
+  a tooltip with the full message, stats, and a GitHub link; plus checkout. **Sync**: fetch / pull / push / sync (pull +
   push) with ahead/behind counts, each remote-write confirmed. **Branches**:
   switch / create / rename / delete / merge / publish. **Remotes**: add /
   remove / set URL. **Git Init**: initialize a repository from a plain
