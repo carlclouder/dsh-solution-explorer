@@ -102,3 +102,25 @@ export function buildSearchContent(search: SearchState, tree: TreeState, root: s
       `;
 
 				}
+
+/** Register the search bridges (window.__solExp*). Returns a disposer. */
+export function registerSearchBridges(deps: { state: AppState; render: () => void }): () => void {
+  const { state, render } = deps
+
+  window.__solExpClearSearch = () => {
+    state.search.searchQuery = "";
+    state.search.searching = false;
+    state.search.searchResults = [];
+    render();
+  };
+
+  window.__solExpSearch = (query) => {
+    if (state.search.searchTimer) clearTimeout(state.search.searchTimer);
+    state.search.searchTimer = setTimeout(() => searchFiles(query, deps), 300);
+  };
+
+  return () => {
+    delete window.__solExpClearSearch;
+    delete window.__solExpSearch;
+  };
+}

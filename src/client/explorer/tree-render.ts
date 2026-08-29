@@ -16,6 +16,8 @@ import type { AppState, TreeState, ClipboardState } from "../state/store.ts"
 export interface Deps {
   state: AppState
   render: () => void
+  /** Injected cross-domain capability (SCM status refresh). */
+  loadGitStatus?: () => Promise<void>
 }
 
 export async function loadTree({ state, render }: Deps) {
@@ -309,3 +311,108 @@ export function reconcileTree(container: any, nodes: any[] | undefined, depth: n
 					}
 
 				}
+
+/** Register the tree-interaction bridges (window.__solExp*). Returns a disposer. */
+export function registerTreeBridges(deps: Deps): () => void {
+  const { state, render } = deps
+
+  window.__solExpToggleExpand = (path) => {
+    if (state.tree.expandedPaths.has(path)) state.tree.expandedPaths.delete(path);
+    else state.tree.expandedPaths.add(path);
+    render();
+  };
+
+  window.__solExpSelectFile = async (path, isDir) => {
+    if (isDir) {
+      // Directories reveal in the tree (expand ancestors + select) instead of
+      // being opened as files — consistent with the tree.
+      const parts = path.split("/").filter(Boolean);
+      let acc = "";
+      for (let i = 0; i < parts.length - 1; i++) {
+        acc = acc ? acc + "/" + parts[i] : parts[i];
+        state.tree.expandedPaths.add(acc);
+      }
+      state.tree.selectedPaths = new Set([path]);
+      state.tree.selectedPath = null;
+      render();
+      return;
+    }
+    state.tree.selectedPath = path;
+    if (typeof window.__solExpOpenFile === "function") window.__solExpOpenFile(path);
+  };
+
+  window.__solExpClearSelection = () => {
+    if (state.tree.selectedPaths.size || state.tree.selectedPath) {
+      state.tree.selectedPaths = new Set<string>();
+      state.tree.selectionAnchor = null;
+      state.tree.selectedPath = null;
+      render();
+    }
+  };
+
+  window.__solExpSelect = (path, shift, ctrl, isDir) => {
+    if (ctrl) {
+      if (state.tree.selectedPaths.has(path)) state.tree.selectedPaths.delete(path);
+      else state.tree.selectedPaths.add(path);
+      state.tree.selectionAnchor = path;
+    } else if (shift && state.tree.selectionAnchor) {
+      const order = [];
+      const collect = (n) => {
+        order.push(n.path);
+        for (const c of n.children || []) collect(c);
+      };
+      if (state.tree.treeState) collect(state.tree.treeState);
+      const a = order.indexOf(state.tree.selectionAnchor), b = order.indexOf(path);
+      if (a >= 0 && b >= 0) {
+        const [lo, hi] = a < b ? [a, b] : [b, a];
+        state.tree.selectedPaths = new Set(order.slice(lo, hi + 1));
+      } else {
+        state.tree.selectedPaths = new Set([path]);
+        state.tree.selectionAnchor = path;
+      }
+    } else {
+      state.tree.selectedPaths = new Set([path]);
+      state.tree.selectionAnchor = path;
+    }
+    state.tree.selectedPath = path;
+    if (isDir) if (state.tree.expandedPaths.has(path)) state.tree.expandedPaths.delete(path);
+    else state.tree.expandedPaths.add(path);
+    render();
+  };
+
+  window.__solExpCollapseAll = () => {
+    state.tree.expandedPaths = new Set<string>();
+    render();
+  };
+
+  window.__solExpExpandAll = () => {
+    const paths = new Set<string>();
+    const collect = (n) => {
+      if (n?.type === "directory") {
+        paths.add(n.path);
+        for (const c of n.children || []) collect(c);
+      }
+    };
+    if (state.tree.treeState) collect(state.tree.treeState);
+    state.tree.expandedPaths = paths;
+    render();
+  };
+
+  window.__solExpRefresh = () => {
+    // Refresh without the loading flash once a tree exists: reconcile in
+    // place; only the very first load falls back to the full loading path.
+    if (state.tree.treeState) refreshTreeSilent(deps);
+    else loadTree(deps);
+    deps.loadGitStatus?.();
+  };
+
+  return () => {
+    delete window.__solExpToggleExpand;
+    delete window.__solExpSelectFile;
+    delete window.__solExpClearSelection;
+    delete window.__solExpSelect;
+    delete window.__solExpCollapseAll;
+    delete window.__solExpExpandAll;
+    delete window.__solExpRefresh;
+  };
+}
