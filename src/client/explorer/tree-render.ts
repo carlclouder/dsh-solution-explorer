@@ -199,7 +199,7 @@ export function renderTreeNode(node: any, depth: number, tree: TreeState, clipbo
 
                ondragstart="window.__solExpDragStart('${pathJs}')"
 
-               ${isDir ? `ondragover="event.preventDefault();event.stopPropagation();window.__solExpDragOver('${pathJs}')" ondrop="event.preventDefault();event.stopPropagation();window.__solExpDrop('${pathJs}', event)` : ""}
+               ${isDir ? `ondragover="event.preventDefault();event.stopPropagation();window.__solExpDragOver('${pathJs}')" ondrop="event.preventDefault();event.stopPropagation();window.__solExpDrop('${pathJs}', event)"` : ""}
 
                data-sol-exp-path="${escapeHtml(node.path)}"
 
