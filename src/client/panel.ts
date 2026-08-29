@@ -44,6 +44,8 @@ import { registerScmBridges } from "./scm/bridges.ts"
 
 import { applyGrid, mountColumn, registerGridBridges } from "./layout/grid.ts"
 
+import { waitForFrame } from "./layout/lifecycle.ts"
+
 export function mountPanel(ctx: ClientContext): void {
 			ctx.effect(() => {
 
@@ -959,12 +961,19 @@ export function mountPanel(ctx: ClientContext): void {
 				applySettings();
 				window.addEventListener("sol-exp-settings-saved", applySettings);
 
+				// Grid deps: injected into layout/grid + lifecycle functions.
+				const gridDeps = { state, render, applySettings };
 
 
 
 
 
 
+
+
+				
+
+				
 
 				
 
@@ -972,35 +981,9 @@ export function mountPanel(ctx: ClientContext): void {
 
 				
 
+
+
 				
-
-				
-
-
-
-				function waitForFrame() {
-
-					mountColumn(gridDeps);
-
-					if (state.layout.panelFrame !== null) return;
-
-					state.layout.mountObs = new MutationObserver(() => {
-
-						mountColumn(gridDeps);
-
-						if (state.layout.panelFrame !== null) state.layout.mountObs?.disconnect();
-
-					});
-
-					state.layout.mountObs.observe(document.body, {
-
-						childList: true,
-
-						subtree: true
-
-					});
-
-				}
 
 				function handleSessionChange() {
 
@@ -1083,7 +1066,7 @@ export function mountPanel(ctx: ClientContext): void {
 
 				handleSessionChange();
 
-				waitForFrame();
+				waitForFrame(gridDeps);
 
 				// Auto-refresh the visible tab in place (incremental reconcile —
 				// no loading flash): the file tree or the SCM region, whichever
@@ -1323,9 +1306,6 @@ export function mountPanel(ctx: ClientContext): void {
 					loadCommitsPage, getCommitDetail, ensureCommitDetailInline, hideCommitTooltip,
 					doStage, doUnstage, doDiscard, doCommit,
 				};
-
-				// Grid deps: injected into layout/grid functions.
-				const gridDeps = { state, render, applySettings };
 
 				// Explorer bridges (tree interaction + search + clipboard +
 				// context-menu) — registered from their domain modules.
