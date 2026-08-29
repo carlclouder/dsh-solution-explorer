@@ -55,9 +55,7 @@ export function mountPanel(ctx: ClientContext): void {
 
 				const state = createInitialState();
 
-				let root = "";
 
-				let currentTab = "explorer";
 
 
 
@@ -78,7 +76,7 @@ export function mountPanel(ctx: ClientContext): void {
 
 
 
-				const gitRoot = () => state.scm.activeRepo || root;
+				const gitRoot = () => state.scm.activeRepo || state.root;
 
 
 				// Cached innerHTML of the recent-commits list: null = not loaded
@@ -161,19 +159,19 @@ export function mountPanel(ctx: ClientContext): void {
 
         <div class="sol-exp-activity">
 
-          <div class="sol-exp-activity-btn ${currentTab === "explorer" ? "active" : ""}" onclick="window.__solExpTab('explorer')" title="${t("panel.explorer")}">
+          <div class="sol-exp-activity-btn ${state.currentTab === "explorer" ? "active" : ""}" onclick="window.__solExpTab('explorer')" title="${t("panel.explorer")}">
 
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h5l1.5 1.5h6a1 1 0 0 1 1 1V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
 
           </div>
 
-          <div class="sol-exp-activity-btn ${currentTab === "search" ? "active" : ""}" onclick="window.__solExpTab('search')" title="${t("file.search")}">
+          <div class="sol-exp-activity-btn ${state.currentTab === "search" ? "active" : ""}" onclick="window.__solExpTab('search')" title="${t("file.search")}">
 
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="4" stroke="currentColor" stroke-width="1.3"/><path d="M9.8 9.8L14 14" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
 
           </div>
 
-          <div class="sol-exp-activity-btn ${currentTab === "scm" ? "active" : ""}" onclick="window.__solExpTab('scm')" title="${t("panel.scm")}">
+          <div class="sol-exp-activity-btn ${state.currentTab === "scm" ? "active" : ""}" onclick="window.__solExpTab('scm')" title="${t("panel.scm")}">
 
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" clipRule="evenodd" d="M6 5C6 4.44772 6.44772 4 7 4C7.55228 4 8 4.44772 8 5C8 5.55228 7.55228 6 7 6C6.44772 6 6 5.55228 6 5ZM8 7.82929C9.16519 7.41746 10 6.30622 10 5C10 3.34315 8.65685 2 7 2C5.34315 2 4 3.34315 4 5C4 6.30622 4.83481 7.41746 6 7.82929V16.1707C4.83481 16.5825 4 17.6938 4 19C4 20.6569 5.34315 22 7 22C8.65685 22 10 20.6569 10 19C10 17.7334 9.21506 16.6501 8.10508 16.2101C8.45179 14.9365 9.61653 14 11 14H13C16.3137 14 19 11.3137 19 8V7.82929C20.1652 7.41746 21 6.30622 21 5C21 3.34315 19.6569 2 18 2C16.3431 2 15 3.34315 15 5C15 6.30622 15.8348 7.41746 17 7.82929V8C17 10.2091 15.2091 12 13 12H11C9.87439 12 8.83566 12.3719 8 12.9996V7.82929ZM18 6C18.5523 6 19 5.55228 19 5C19 4.44772 18.5523 4 18 4C17.4477 4 17 4.44772 17 5C17 5.55228 17.4477 6 18 6ZM6 19C6 18.4477 6.44772 18 7 18C7.55228 18 8 18.4477 8 19C8 19.5523 7.55228 20 7 20C6.44772 20 6 19.5523 6 19Z" fill="currentColor"/></svg>
 
@@ -201,11 +199,11 @@ export function mountPanel(ctx: ClientContext): void {
 
 					let contentHTML = "";
 
-					if (currentTab === "scm") contentHTML = '<div class="sol-exp-scm-host" data-sol-exp-scm-host>' + buildSCMContent(state.scm, state.commits, root) + '</div>';
+					if (state.currentTab === "scm") contentHTML = '<div class="sol-exp-scm-host" data-sol-exp-scm-host>' + buildSCMContent(state.scm, state.commits, state.root) + '</div>';
 
-					else if (currentTab === "search") contentHTML = buildSearchContent(state.search, state.tree, root);
+					else if (state.currentTab === "search") contentHTML = buildSearchContent(state.search, state.tree, state.root);
 
-					else contentHTML = buildExplorerContent(state.tree, state.clipboard, root);
+					else contentHTML = buildExplorerContent(state.tree, state.clipboard, state.root);
 
 					return `
 
@@ -251,7 +249,7 @@ export function mountPanel(ctx: ClientContext): void {
 
 				window.__solExpTab = (tab) => {
 
-					currentTab = tab;
+					state.currentTab = tab as "explorer" | "search" | "scm";
 
 					render();
 
@@ -449,14 +447,14 @@ export function mountPanel(ctx: ClientContext): void {
 							// Width/visibility are first-time defaults only —
 							// never after a drag. The tree, however, always
 							// reloads so filter/show-hidden changes apply.
-							if (root !== "" && !state.layout.panelDragged && state.layout.panelFrame !== null) {
+							if (state.root !== "" && !state.layout.panelDragged && state.layout.panelFrame !== null) {
 								state.layout.panelWidth = state.layout.panelAutoOpen ? state.layout.PANEL_WIDTH : 0;
 								// A zero width means "closed": no folded rail may
 								// linger after settings re-apply (e.g. autoOpen off).
 								if (state.layout.panelWidth === 0) state.layout.panelCollapsed = false;
 								applyGrid(gridDeps);
 							}
-							if (root !== "") loadTree({ state, render });
+							if (state.root !== "") loadTree({ state, render });
 						}
 					}).catch(() => {});
 				};
@@ -501,7 +499,7 @@ export function mountPanel(ctx: ClientContext): void {
 					// cwd switch may reset the panel width, otherwise a live
 					// session event during a drag would snap the panel back
 					// to its default (a "wrong direction" jump).
-					if (newRoot === root) return;
+					if (newRoot === state.root) return;
 
 					if (newRoot !== "") {
 						// Settings have not loaded yet: do not flash the panel
@@ -523,7 +521,7 @@ export function mountPanel(ctx: ClientContext): void {
 
 					if (state.layout.panelFrame !== null) applyGrid(gridDeps);
 
-					root = newRoot;
+					state.root = newRoot;
 
 					state.tree.treeState = null;
 
@@ -546,11 +544,11 @@ export function mountPanel(ctx: ClientContext): void {
 					state.commits.commitDetailCache.clear();
 					state.commits.remotesResolved = false;
 
-					state.tree.loading = root !== "";
+					state.tree.loading = state.root !== "";
 
 					render();
 
-					if (root) {
+					if (state.root) {
 
 						state.scm.activeRepo = "";
 
@@ -563,28 +561,6 @@ export function mountPanel(ctx: ClientContext): void {
 					}
 
 				}
-
-				const unsub = ctx.sessions.list.subscribe(handleSessionChange);
-
-				handleSessionChange();
-
-				waitForFrame(gridDeps);
-
-				// Auto-refresh the visible tab in place (incremental reconcile —
-				// no loading flash): the file tree or the SCM region, whichever
-				// is on screen, patched locally every few seconds.
-				const autoRefreshTimer = setInterval(() => {
-
-					if (root === "" || document.visibilityState !== "visible" || state.scm.scmDragging) return;
-
-					if (currentTab === "scm") loadGitStatus(actionsDeps);
-
-					else if (currentTab === "explorer") refreshTreeSilent({ state, render });
-
-				}, 4000);
-
-				console.log("[sol-exp] injecting __solExpOpenFile");
-
 
 				// History deps: injected into scm/history functions.
 				const historyDeps = { state, loadRemotes };
@@ -606,6 +582,27 @@ export function mountPanel(ctx: ClientContext): void {
 					loadCommitsPage, getCommitDetail, ensureCommitDetailInline, hideCommitTooltip,
 					doStage, doUnstage, doDiscard, doCommit,
 				};
+
+				const unsub = ctx.sessions.list.subscribe(handleSessionChange);
+
+				handleSessionChange();
+
+				waitForFrame(gridDeps);
+
+				// Auto-refresh the visible tab in place (incremental reconcile —
+				// no loading flash): the file tree or the SCM region, whichever
+				// is on screen, patched locally every few seconds.
+				const autoRefreshTimer = setInterval(() => {
+
+					if (state.root === "" || document.visibilityState !== "visible" || state.scm.scmDragging) return;
+
+					if (state.currentTab === "scm") loadGitStatus(actionsDeps);
+
+					else if (state.currentTab === "explorer") refreshTreeSilent({ state, render });
+
+				}, 4000);
+
+				console.log("[sol-exp] injecting __solExpOpenFile");
 
 				// Explorer bridges (tree interaction + search + clipboard +
 				// context-menu) — registered from their domain modules.
