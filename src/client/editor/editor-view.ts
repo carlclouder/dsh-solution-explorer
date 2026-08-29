@@ -361,7 +361,7 @@ j++;
 
 }
 
-full.push({ id: rowIdRef.current++, old: oldLines[i - 1], new: newLines[paired - 1], oldNum: i, newNum: paired, inNew: true, oldDel: false, newAdd: false });
+full.push({ id: rowIdRef.current++, old: oldLines[i - 1], new: newLines[paired - 1], oldNum: i, newNum: paired, inNew: true, oldDel: oldLines[i - 1] !== newLines[paired - 1], newAdd: oldLines[i - 1] !== newLines[paired - 1] });
 
 j = paired + 1;
 
