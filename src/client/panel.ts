@@ -38,6 +38,8 @@ import { getCommitDetail, ensureCommitDetailInline, reapplyCommitDetailInline, h
 
 import { loadGitStatus, loadRepos, doStage, doUnstage, doDiscard, doCommit } from "./scm/actions.ts"
 
+import { loadRemotes, loadBranches, loadTags } from "./scm/branches.ts"
+
 export function mountPanel(ctx: ClientContext): void {
 			ctx.effect(() => {
 
@@ -217,18 +219,9 @@ window.__solExpCommitCheckout = async (hash) => {
   if (!result.ok) alert(result.error?.message || "切换失败");
   else { await loadGitStatus(actionsDeps); await loadRecentCommits(historyDeps); }
 };
-async function loadRemotes() {
-  const result = await (await fetch(`/solution-explorer/git-remotes?root=${encodeURIComponent(gitRoot())}`)).json();
-  state.scm.remotesList = result.ok && result.value ? result.value : [];
-}
-async function loadBranches() {
-  const result = await (await fetch(`/solution-explorer/git-branches?root=${encodeURIComponent(gitRoot())}`)).json();
-  state.scm.branchesList = result.ok && result.value ? result.value : [];
-}
-async function loadTags() {
-  const result = await (await fetch(`/solution-explorer/git-tags?root=${encodeURIComponent(gitRoot())}`)).json();
-  state.scm.tagsList = result.ok && result.value ? result.value : [];
-}
+
+
+
 window.__solExpGitInit = async () => {
   if (!(await showConfirm({ title: t("scm.init.button"), message: t("scm.init.confirm"), okText: t("scm.init.button") }))) return;
   const result = await (await fetch("/solution-explorer/git-init", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot() }) })).json();
@@ -239,7 +232,7 @@ window.__solExpFetch = async () => {
   const result = await (await fetch("/solution-explorer/git-fetch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot() }) })).json();
   if (!result.ok) showToast(result.error?.message || "抓取失败", true);
   else {
-    await loadGitStatus(actionsDeps); await loadBranches();
+    await loadGitStatus(actionsDeps); await loadBranches(branchesDeps);
     const out = (result.value || "").trim();
     showToast(out ? t("scm.sync.fetch") + ":\n" + out : t("scm.sync.upToDate"));
   }
@@ -274,27 +267,27 @@ window.__solExpSync = async () => {
     showToast(out ? t("scm.sync.sync") + ":\n" + out : t("scm.sync.done"));
   }
 };
-window.__solExpRemotePanel = async () => { state.scm.remotePanelOpen = !state.scm.remotePanelOpen; if (state.scm.remotePanelOpen) await loadRemotes(); render(); };
+window.__solExpRemotePanel = async () => { state.scm.remotePanelOpen = !state.scm.remotePanelOpen; if (state.scm.remotePanelOpen) await loadRemotes(branchesDeps); render(); };
 window.__solExpRemoteName = (v) => { state.scm.remoteName = v; };
 window.__solExpRemoteUrl = (v) => { state.scm.remoteUrl = v; };
 window.__solExpRemoteAdd = async () => {
   if (!state.scm.remoteName.trim() || !state.scm.remoteUrl.trim()) return;
   const result = await (await fetch("/solution-explorer/git-remote-add", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name: state.scm.remoteName.trim(), url: state.scm.remoteUrl.trim() }) })).json();
   if (!result.ok) alert(result.error?.message || "添加远程失败");
-  else { state.scm.remoteName = ""; state.scm.remoteUrl = ""; await loadRemotes(); render(); }
+  else { state.scm.remoteName = ""; state.scm.remoteUrl = ""; await loadRemotes(branchesDeps); render(); }
 };
 window.__solExpRemoteRemove = async (name) => {
   if (!(await showConfirm({ title: t("scm.remote.title"), message: t("scm.remote.removeConfirm").replace("{name}", name), okText: t("scm.remote.remove"), danger: true }))) return;
   const result = await (await fetch("/solution-explorer/git-remote-remove", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name }) })).json();
-  if (!result.ok) alert(result.error?.message || "删除远程失败"); else { await loadRemotes(); render(); }
+  if (!result.ok) alert(result.error?.message || "删除远程失败"); else { await loadRemotes(branchesDeps); render(); }
 };
 window.__solExpRemoteSetUrl = async (name) => {
   const url = await showPrompt({ title: t("scm.remote.title"), message: "新的 URL（" + name + "）", placeholder: "https://… 或 git@…" });
   if (!url || !url.trim()) return;
   const result = await (await fetch("/solution-explorer/git-remote-set-url", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name, url: url.trim() }) })).json();
-  if (!result.ok) alert(result.error?.message || "修改地址失败"); else await loadRemotes();
+  if (!result.ok) alert(result.error?.message || "修改地址失败"); else await loadRemotes(branchesDeps);
 };
-window.__solExpBranchPanel = async () => { state.scm.branchPanelOpen = !state.scm.branchPanelOpen; if (state.scm.branchPanelOpen) { await loadBranches(); await loadTags(); } render(); };
+window.__solExpBranchPanel = async () => { state.scm.branchPanelOpen = !state.scm.branchPanelOpen; if (state.scm.branchPanelOpen) { await loadBranches(branchesDeps); await loadTags(branchesDeps); } render(); };
 window.__solExpBranchName = (v) => { state.scm.branchName = v; };
 window.__solExpBranchFrom = (v) => { state.scm.branchFrom = v; };
 window.__solExpBranchCreate = async () => {
@@ -303,7 +296,7 @@ window.__solExpBranchCreate = async () => {
   if (state.scm.branchFrom.trim()) body.from = state.scm.branchFrom.trim();
   const result = await (await fetch("/solution-explorer/git-branch-create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
   if (!result.ok) alert(result.error?.message || "创建分支失败");
-  else { state.scm.branchName = ""; state.scm.branchFrom = ""; await loadBranches(); render(); }
+  else { state.scm.branchName = ""; state.scm.branchFrom = ""; await loadBranches(branchesDeps); render(); }
 };
 window.__solExpBranchCheckout = async (name, isRemote) => {
   const result = await (await fetch("/solution-explorer/git-branch-checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name, track: isRemote === true }) })).json();
@@ -313,7 +306,7 @@ window.__solExpBranchCheckout = async (name, isRemote) => {
     // fresh list node — loading before render() lets render wipe the result
     // and leave the history stuck on "Loading…".
     await loadGitStatus(actionsDeps);
-    await loadBranches();
+    await loadBranches(branchesDeps);
     render();
     await loadRecentCommits(historyDeps);
   }
@@ -328,13 +321,13 @@ window.__solExpBranchDelete = async (name) => {
     if (!ok) return;
     result = await (await fetch("/solution-explorer/git-branch-delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name, force: true }) })).json();
   }
-  if (!result.ok) showToast(result.error?.message || "删除失败", true); else { await loadBranches(); render(); }
+  if (!result.ok) showToast(result.error?.message || "删除失败", true); else { await loadBranches(branchesDeps); render(); }
 };
 window.__solExpBranchRename = async (name) => {
   const newName = await showPrompt({ title: t("scm.branch.title"), message: t("scm.branch.newName") + " (" + name + ")", placeholder: name });
   if (!newName || !newName.trim()) return;
   const result = await (await fetch("/solution-explorer/git-branch-rename", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), oldName: name, newName: newName.trim() }) })).json();
-  if (!result.ok) alert(result.error?.message || "重命名失败"); else { await loadBranches(); render(); }
+  if (!result.ok) alert(result.error?.message || "重命名失败"); else { await loadBranches(branchesDeps); render(); }
 };
 window.__solExpBranchMerge = async (name) => {
   if (!(await showConfirm({ title: t("scm.branch.title"), message: t("scm.branch.mergeConfirm").replace("{name}", name), okText: t("scm.branch.merge") }))) return;
@@ -344,7 +337,7 @@ window.__solExpBranchMerge = async (name) => {
 window.__solExpBranchPublish = async (name) => {
   if (!(await showConfirm({ title: t("scm.branch.title"), message: t("scm.branch.publishConfirm").replace("{name}", name), okText: t("scm.branch.publish") }))) return;
   const result = await (await fetch("/solution-explorer/git-branch-publish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name }) })).json();
-  if (!result.ok) alert(result.error?.message || "发布失败"); else await loadBranches();
+  if (!result.ok) alert(result.error?.message || "发布失败"); else await loadBranches(branchesDeps);
 };
 
 				
@@ -1924,6 +1917,9 @@ styleObs = new MutationObserver(syncGrid);
 
 				// Actions deps: injected into scm/actions functions.
 				const actionsDeps = { state, render, loadRecentCommits };
+
+				// Branches deps: injected into scm/branches functions.
+				const branchesDeps = { state };
 
 				// Explorer bridges (tree interaction + search + clipboard +
 				// context-menu) — registered from their domain modules.

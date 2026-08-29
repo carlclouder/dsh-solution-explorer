@@ -16,7 +16,7 @@ import { resetGraph, commitsListHTML, renderGraphRow } from "./graph.ts"
 
 export interface HistoryDeps {
   state: AppState
-  loadRemotes?: () => Promise<void>
+  loadRemotes?: (deps?: any) => Promise<void>
 }
 
 export async function getCommitDetail(hash: string, { state }: HistoryDeps) {
@@ -78,7 +78,7 @@ export async function reapplyCommitDetailInline({ state }: HistoryDeps) {
 }
 
 export async function githubCommitUrl(hash: string, { state, loadRemotes }: HistoryDeps) {
-  if (!state.commits.remotesResolved && state.scm.remotesList.length === 0) { await loadRemotes?.(); state.commits.remotesResolved = true; }
+  if (!state.commits.remotesResolved && state.scm.remotesList.length === 0) { await loadRemotes?.({ state }); state.commits.remotesResolved = true; }
   const r = state.scm.remotesList.find((x) => x.type === "fetch" && x.name === "origin") || state.scm.remotesList.find((x) => x.type === "fetch");
   if (!r) return "";
   const url = r.url || "";
