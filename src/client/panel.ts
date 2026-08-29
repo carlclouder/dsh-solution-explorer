@@ -109,7 +109,7 @@ export function mountPanel(ctx: ClientContext): void {
 					// plus the three feature icons — instead of the activity
 					// bar + body. The shell column keeps its border, so the
 					// rail reads as a sibling of the native collapsed sidebar.
-					if (panelCollapsed) {
+					if (state.layout.panelCollapsed) {
 
 						// Rail expand control mirrors the native sidebar rail: a
 						// 16px panel-left glyph (same Figma source the shell
@@ -265,7 +265,7 @@ export function mountPanel(ctx: ClientContext): void {
 				// tab in one click (the rail itself has no body to render).
 				window.__solExpRailOpen = (tab) => {
 
-					panelCollapsed = false;
+					state.layout.panelCollapsed = false;
 
 					window.__solExpTab(tab);
 
@@ -366,9 +366,9 @@ export function mountPanel(ctx: ClientContext): void {
 					// Expand back: drop the folded rail, restore the column at
 					// its stored width preference (panelWidth was never
 					// rewritten while folded).
-					if (panelCollapsed) {
+					if (state.layout.panelCollapsed) {
 
-						panelCollapsed = false;
+						state.layout.panelCollapsed = false;
 
 						render();
 
@@ -381,9 +381,9 @@ export function mountPanel(ctx: ClientContext): void {
 					// Nothing to fold while the panel is closed (auto-open off
 					// or no session root): the control is only reachable from
 					// the expanded column, but guard anyway.
-					if (panelWidth <= 0) return;
+					if (state.layout.panelWidth <= 0) return;
 
-					panelCollapsed = true;
+					state.layout.panelCollapsed = true;
 
 					render();
 
@@ -444,11 +444,8 @@ export function mountPanel(ctx: ClientContext): void {
 
 				const PANEL_WIDTH_DEFAULT = 280;
 
-				let PANEL_WIDTH = PANEL_WIDTH_DEFAULT;
 
-				let panelAutoOpen = true;
 
-				let settingsLoaded = false;
 
 				const PANEL_MIN = 264;
 
@@ -459,14 +456,11 @@ export function mountPanel(ctx: ClientContext): void {
 				// reads as a sibling of the shell's own collapsed sidebar.
 				const PANEL_RAIL = 56;
 
-				let panelWidth = 0;
 
-				let panelDragged = false;
 
 				// Whole-panel fold state: folded shows the compact rail instead
 				// of the full column. panelWidth keeps the expanded preference
 				// untouched while folded, so expanding restores the exact width.
-				let panelCollapsed = false;
 
 				// ── Embedded multi-tab terminal (ConPTY via the host service) ──
 				const TERM_CELL_W = 9;
@@ -900,11 +894,11 @@ export function mountPanel(ctx: ClientContext): void {
 				};
 
 				const terminalCenterCol = () => {
-					if (panelFrame === null) return null;
-					for (const child of panelFrame.children) {
+					if (state.layout.panelFrame === null) return null;
+					for (const child of state.layout.panelFrame.children) {
 						if (getComputedStyle(child).gridColumnStart === "2") return child;
 					}
-					return panelFrame.children[1] ?? null;
+					return state.layout.panelFrame.children[1] ?? null;
 				};
 
 				const placeTerminal = () => {
@@ -980,8 +974,8 @@ export function mountPanel(ctx: ClientContext): void {
 				const applySettings = () => {
 					fetch("/solution-explorer/settings").then((r) => r.json()).then((res) => {
 						if (res && res.ok && res.value) {
-							if (typeof res.value.defaultWidth === "number" && res.value.defaultWidth >= PANEL_MIN && res.value.defaultWidth <= PANEL_MAX) PANEL_WIDTH = res.value.defaultWidth;
-							if (typeof res.value.autoOpen === "boolean") panelAutoOpen = res.value.autoOpen;
+							if (typeof res.value.defaultWidth === "number" && res.value.defaultWidth >= PANEL_MIN && res.value.defaultWidth <= PANEL_MAX) state.layout.PANEL_WIDTH = res.value.defaultWidth;
+							if (typeof res.value.autoOpen === "boolean") state.layout.panelAutoOpen = res.value.autoOpen;
 							if (typeof res.value.terminalHeight === "number") terminalHeight = res.value.terminalHeight;
 							if (typeof res.value.terminalMaxHeight === "number") terminalMaxHeight = res.value.terminalMaxHeight;
 							if (terminalHeight > terminalMaxHeight) terminalHeight = terminalMaxHeight;
@@ -996,15 +990,15 @@ export function mountPanel(ctx: ClientContext): void {
 								window.setTimeout(fitTerminal, 60);
 								renderTerminalTabs();
 							}
-							settingsLoaded = true;
+							state.layout.settingsLoaded = true;
 							// Width/visibility are first-time defaults only —
 							// never after a drag. The tree, however, always
 							// reloads so filter/show-hidden changes apply.
-							if (root !== "" && !panelDragged && panelFrame !== null) {
-								panelWidth = panelAutoOpen ? PANEL_WIDTH : 0;
+							if (root !== "" && !state.layout.panelDragged && state.layout.panelFrame !== null) {
+								state.layout.panelWidth = state.layout.panelAutoOpen ? state.layout.PANEL_WIDTH : 0;
 								// A zero width means "closed": no folded rail may
 								// linger after settings re-apply (e.g. autoOpen off).
-								if (panelWidth === 0) panelCollapsed = false;
+								if (state.layout.panelWidth === 0) state.layout.panelCollapsed = false;
 								applyGrid();
 							}
 							if (root !== "") loadTree({ state, render });
@@ -1015,18 +1009,11 @@ export function mountPanel(ctx: ClientContext): void {
 				window.addEventListener("sol-exp-settings-saved", applySettings);
 
 
-				let panelFrame = null;
 
-				let panelCol = null;
 
-				let shellTracks = [];
-				let lastGridApplied = "";
 
-				let styleObs = null;
 
-				let sizeObs = null;
 
-				let resizeHandle = null;
 
 				function parseGridTracks(input) {
 
@@ -1092,91 +1079,91 @@ export function mountPanel(ctx: ClientContext): void {
 
 				function applyGrid() {
 
-					if (panelFrame === null || shellTracks.length < 3) return;
+					if (state.layout.panelFrame === null || state.layout.shellTracks.length < 3) return;
 
 					// Folded: the column keeps a fixed narrow rail (mirrors the
 					// native collapsed sidebar); expanded it uses the width
 					// preference.
-					const track = panelCollapsed ? PANEL_RAIL : panelWidth;
+					const track = state.layout.panelCollapsed ? PANEL_RAIL : state.layout.panelWidth;
 
-					const value = `${shellTracks[0]} minmax(0, 1fr) ${shellTracks[2]} ${Math.round(track)}px`;
-					panelFrame.style.gridTemplateColumns = value;
-					lastGridApplied = value;
+					const value = `${state.layout.shellTracks[0]} minmax(0, 1fr) ${state.layout.shellTracks[2]} ${Math.round(track)}px`;
+					state.layout.panelFrame.style.gridTemplateColumns = value;
+					state.layout.lastGridApplied = value;
 
-					if (panelCol !== null) panelCol.style.visibility = panelCollapsed || panelWidth > 0 ? "visible" : "hidden";
+					if (state.layout.panelCol !== null) state.layout.panelCol.style.visibility = state.layout.panelCollapsed || state.layout.panelWidth > 0 ? "visible" : "hidden";
 
-					if (resizeHandle !== null) {
+					if (state.layout.resizeHandle !== null) {
 						// The collapsed rail is fixed-width: no resize handle
 						// while folded (native sidebar behavior).
-						if (panelCollapsed) {
-							resizeHandle.style.display = "none";
+						if (state.layout.panelCollapsed) {
+							state.layout.resizeHandle.style.display = "none";
 							return;
 						}
-						resizeHandle.style.display = "";
-						const w = panelFrame.getBoundingClientRect().width;
-						const handleLeft = w - panelWidth - 3;
+						state.layout.resizeHandle.style.display = "";
+						const w = state.layout.panelFrame.getBoundingClientRect().width;
+						const handleLeft = w - state.layout.panelWidth - 3;
 						// The panel grabber and the shell sidebar grabber both
 						// sit on 8px hit strips; once the chat column is
 						// squeezed away they overlap, and the later-appended
 						// panel grabber wins the pointer. Disable it there so
 						// the sidebar drag keeps full control.
-						const overlapped = handleLeft - 4 <= (trackPx(shellTracks[0]) || 0) + 4;
-						resizeHandle.style.left = handleLeft + "px";
-						resizeHandle.style.pointerEvents = overlapped ? "none" : "auto";
-						resizeHandle.dataset.overlapped = overlapped ? "true" : "false";
+						const overlapped = handleLeft - 4 <= (trackPx(state.layout.shellTracks[0]) || 0) + 4;
+						state.layout.resizeHandle.style.left = handleLeft + "px";
+						state.layout.resizeHandle.style.pointerEvents = overlapped ? "none" : "auto";
+						state.layout.resizeHandle.dataset.overlapped = overlapped ? "true" : "false";
 					}
 				}
 function mountColumn() {
 
-					if (panelFrame !== null) return;
+					if (state.layout.panelFrame !== null) return;
 
 					const frame = findFrame();
 
 					if (frame === null) return;
 
-					panelFrame = frame;
+					state.layout.panelFrame = frame;
 
-					panelCol = document.createElement("div");
+					state.layout.panelCol = document.createElement("div");
 
-					panelCol.dataset.solutionExplorer = "";
+					state.layout.panelCol.dataset.solutionExplorer = "";
 
-					panelCol.style.minWidth = "0";
+					state.layout.panelCol.style.minWidth = "0";
 
-					panelCol.style.overflow = "hidden";
+					state.layout.panelCol.style.overflow = "hidden";
 
-					panelCol.style.display = "flex";
+					state.layout.panelCol.style.display = "flex";
 
-					panelCol.style.flexDirection = "column";
+					state.layout.panelCol.style.flexDirection = "column";
 
-					panelCol.style.borderLeft = "1px solid var(--dsw-alias-border-l2, #333)";
+					state.layout.panelCol.style.borderLeft = "1px solid var(--dsw-alias-border-l2, #333)";
 
-					frame.appendChild(panelCol);
+					frame.appendChild(state.layout.panelCol);
 
-					activeEl = panelCol;
+					activeEl = state.layout.panelCol;
 
 					render();
 
-					panelCol.addEventListener("dragenter", (e) => e.stopPropagation());
+					state.layout.panelCol.addEventListener("dragenter", (e) => e.stopPropagation());
 
-					panelCol.addEventListener("dragover", (e) => e.stopPropagation());
+					state.layout.panelCol.addEventListener("dragover", (e) => e.stopPropagation());
 
-					panelCol.addEventListener("drop", (e) => e.stopPropagation());
+					state.layout.panelCol.addEventListener("drop", (e) => e.stopPropagation());
 
-					resizeHandle = document.createElement("div");
+					state.layout.resizeHandle = document.createElement("div");
 
-					resizeHandle.className = "sol-exp-resize-handle";
+					state.layout.resizeHandle.className = "sol-exp-resize-handle";
 
-					resizeHandle.addEventListener("pointerdown", (e) => {
+					state.layout.resizeHandle.addEventListener("pointerdown", (e) => {
 
 						e.preventDefault();
 
-						resizeHandle.dataset.dragging = "true";
+						state.layout.resizeHandle.dataset.dragging = "true";
 
-						resizeHandle.setPointerCapture(e.pointerId);
+						state.layout.resizeHandle.setPointerCapture(e.pointerId);
 
 						const startX = e.clientX;
 
-						const startWidth = panelWidth;
+						const startWidth = state.layout.panelWidth;
 
 						let dragging = false;
 
@@ -1191,11 +1178,11 @@ function mountColumn() {
 
 							dragging = true;
 
-							panelWidth = clampPanelWidth(startWidth - dx);
+							state.layout.panelWidth = clampPanelWidth(startWidth - dx);
 
 							// A drag owns the width: settings never rewrite it
 							// again until the next software start.
-							panelDragged = true;
+							state.layout.panelDragged = true;
 
 							applyGrid();
 
@@ -1203,40 +1190,40 @@ function mountColumn() {
 
 						const onUp = () => {
 
-							resizeHandle.removeEventListener("pointermove", onMove);
+							state.layout.resizeHandle.removeEventListener("pointermove", onMove);
 
-							resizeHandle.removeEventListener("pointerup", onUp);
+							state.layout.resizeHandle.removeEventListener("pointerup", onUp);
 
-							resizeHandle.dataset.dragging = void 0;
+							state.layout.resizeHandle.dataset.dragging = void 0;
 
 						};
 
-						resizeHandle.addEventListener("pointermove", onMove);
+						state.layout.resizeHandle.addEventListener("pointermove", onMove);
 
-						resizeHandle.addEventListener("pointerup", onUp);
+						state.layout.resizeHandle.addEventListener("pointerup", onUp);
 
 					});
 
-					frame.appendChild(resizeHandle);
+					frame.appendChild(state.layout.resizeHandle);
 
 					applyGrid();
 
 										const syncGrid = () => {
 
-						if (panelFrame === null) return;
+						if (state.layout.panelFrame === null) return;
 
-						const inline = panelFrame.style.gridTemplateColumns;
-						if (inline === "" || inline === lastGridApplied) return;
+						const inline = state.layout.panelFrame.style.gridTemplateColumns;
+						if (inline === "" || inline === state.layout.lastGridApplied) return;
 
 						const tracks = parseGridTracks(inline);
 						if (tracks.length >= 2) {
-							shellTracks = tracks.length >= 3 ? tracks.slice(0, 3) : [...tracks, "minmax(0, 1fr)"];
+							state.layout.shellTracks = tracks.length >= 3 ? tracks.slice(0, 3) : [...tracks, "minmax(0, 1fr)"];
 							applyGrid();
 						}
 					};
-styleObs = new MutationObserver(syncGrid);
+state.layout.styleObs = new MutationObserver(syncGrid);
 
-					styleObs.observe(frame, {
+					state.layout.styleObs.observe(frame, {
 
 						attributes: true,
 
@@ -1246,13 +1233,13 @@ styleObs = new MutationObserver(syncGrid);
 
 				
 
-					sizeObs = new ResizeObserver(() => {
+					state.layout.sizeObs = new ResizeObserver(() => {
 
 						applyGrid();
 
 					});
 
-					sizeObs.observe(frame);
+					state.layout.sizeObs.observe(frame);
 
 					const initial = (frame as HTMLElement).style.gridTemplateColumns;
 
@@ -1260,9 +1247,9 @@ styleObs = new MutationObserver(syncGrid);
 
 						const tracks = parseGridTracks(initial);
 
-						if (tracks.length >= 2 && tracks.length <= 3) shellTracks = tracks;
+						if (tracks.length >= 2 && tracks.length <= 3) state.layout.shellTracks = tracks;
 
-						else if (tracks.length === 4 && trackPx(tracks[0]) > 0) shellTracks = tracks.slice(0, 3);
+						else if (tracks.length === 4 && trackPx(tracks[0]) > 0) state.layout.shellTracks = tracks.slice(0, 3);
 
 					}
 
@@ -1275,23 +1262,22 @@ styleObs = new MutationObserver(syncGrid);
 
 				}
 
-				let mountObs = null;
 
 				function waitForFrame() {
 
 					mountColumn();
 
-					if (panelFrame !== null) return;
+					if (state.layout.panelFrame !== null) return;
 
-					mountObs = new MutationObserver(() => {
+					state.layout.mountObs = new MutationObserver(() => {
 
 						mountColumn();
 
-						if (panelFrame !== null) mountObs?.disconnect();
+						if (state.layout.panelFrame !== null) state.layout.mountObs?.disconnect();
 
 					});
 
-					mountObs.observe(document.body, {
+					state.layout.mountObs.observe(document.body, {
 
 						childList: true,
 
@@ -1320,22 +1306,22 @@ styleObs = new MutationObserver(syncGrid);
 					if (newRoot !== "") {
 						// Settings have not loaded yet: do not flash the panel
 						// open with defaults; mountColumn re-applies once ready.
-						if (!settingsLoaded) {
-							panelWidth = 0;
-						} else if (!panelDragged) {
-							panelWidth = panelAutoOpen ? PANEL_WIDTH : 0;
+						if (!state.layout.settingsLoaded) {
+							state.layout.panelWidth = 0;
+						} else if (!state.layout.panelDragged) {
+							state.layout.panelWidth = state.layout.panelAutoOpen ? state.layout.PANEL_WIDTH : 0;
 						}
 						// panelDragged: keep the dragged width across session
 						// switches — the user's drag owns it until restart.
 					} else {
-						panelWidth = 0;
+						state.layout.panelWidth = 0;
 					}
 
 					// A zero width means "closed": no folded rail may linger
 					// when the panel is closed (no root yet, or auto-open off).
-					if (panelWidth === 0) panelCollapsed = false;
+					if (state.layout.panelWidth === 0) state.layout.panelCollapsed = false;
 
-					if (panelFrame !== null) applyGrid();
+					if (state.layout.panelFrame !== null) applyGrid();
 
 					root = newRoot;
 
@@ -1639,13 +1625,13 @@ styleObs = new MutationObserver(syncGrid);
 
 					unsub();
 
-					styleObs?.disconnect();
+					state.layout.styleObs?.disconnect();
 
-					sizeObs?.disconnect();
+					state.layout.sizeObs?.disconnect();
 
-					mountObs?.disconnect();
+					state.layout.mountObs?.disconnect();
 
-					if (panelFrame !== null && panelCol !== null) panelCol.remove();
+					if (state.layout.panelFrame !== null && state.layout.panelCol !== null) state.layout.panelCol.remove();
 
 					if (terminalShellEl !== null) terminalShellEl.remove();
 
@@ -1663,7 +1649,7 @@ styleObs = new MutationObserver(syncGrid);
 
 					window.removeEventListener("resize", onWindowResize);
 
-					resizeHandle?.remove();
+					state.layout.resizeHandle?.remove();
 
 					[
 

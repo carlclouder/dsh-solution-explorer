@@ -89,14 +89,14 @@ export interface LayoutState {
   panelWidth: number
   panelDragged: boolean
   panelCollapsed: boolean
-  panelFrame: HTMLElement | null
-  panelCol: unknown
-  shellTracks: unknown[]
+  panelFrame: any
+  panelCol: any
+  shellTracks: any[]
   lastGridApplied: string
-  styleObs: unknown
-  sizeObs: unknown
-  resizeHandle: unknown
-  mountObs: unknown
+  styleObs: any
+  sizeObs: any
+  resizeHandle: any
+  mountObs: any
 }
 
 export interface TerminalState {

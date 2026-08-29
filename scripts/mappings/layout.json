@@ -1,0 +1,16 @@
+{
+  "PANEL_WIDTH": "state.layout.PANEL_WIDTH",
+  "panelAutoOpen": "state.layout.panelAutoOpen",
+  "settingsLoaded": "state.layout.settingsLoaded",
+  "panelWidth": "state.layout.panelWidth",
+  "panelDragged": "state.layout.panelDragged",
+  "panelCollapsed": "state.layout.panelCollapsed",
+  "panelFrame": "state.layout.panelFrame",
+  "panelCol": "state.layout.panelCol",
+  "shellTracks": "state.layout.shellTracks",
+  "lastGridApplied": "state.layout.lastGridApplied",
+  "styleObs": "state.layout.styleObs",
+  "sizeObs": "state.layout.sizeObs",
+  "resizeHandle": "state.layout.resizeHandle",
+  "mountObs": "state.layout.mountObs"
+}
