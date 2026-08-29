@@ -106,22 +106,22 @@ export interface TerminalState {
   terminalMaxHeight: number
   terminalMaxTabs: number
   terminalShell: string
-  terminalTabs: unknown[]
+  terminalTabs: any[]
   terminalSeq: number
   terminalBusy: boolean
   terminalActiveTab: number
-  terminalShellEl: HTMLElement | null
-  terminalRebootTimer: unknown
+  terminalShellEl: any
+  terminalRebootTimer: any
   terminalStreamOn: boolean
-  terminalStreamCtrl: unknown
-  termSizeObserver: unknown
+  terminalStreamCtrl: any
+  termSizeObserver: any
   termSettleUntil: number
-  termLastSize: unknown
-  termInputTimer: unknown
-  termInputPending: Map<unknown, unknown>
-  termInputInFlight: Map<unknown, unknown>
-  termInputTail: Map<unknown, unknown>
-  termOutputFlush: unknown
+  termLastSize: any
+  termInputTimer: any
+  termInputPending: Map<any, any>
+  termInputInFlight: Map<any, any>
+  termInputTail: Map<any, any>
+  termOutputFlush: any
 }
 
 export interface AppState {

@@ -118,7 +118,7 @@ export function mountPanel(ctx: ClientContext): void {
 						// 16px panel-left glyph (same Figma source the shell
 						// swaps in on rail hover), so the folded panel reads as
 						// a sibling of the native collapsed rail.
-						state.activeEl.innerHTML = `<div class="sol-exp-panel sol-exp-panel-rail"><button class="sol-exp-rail-btn" title="${document.documentElement.lang?.startsWith("zh") ? "展开面板" : "Expand panel"}" onclick="window.__solExpTogglePanel()"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" clipRule="evenodd" d="M9.67272 0.522841C10.8339 0.522841 11.76 0.522714 12.4963 0.602493C13.2453 0.683657 13.8789 0.854248 14.4264 1.25197C14.7504 1.48739 15.0355 1.77247 15.2709 2.0965C15.6686 2.64394 15.8392 3.27758 15.9204 4.02655C16.0002 4.7629 16 5.68895 16 6.85014V9.14986C16 10.3111 16.0002 11.2371 15.9204 11.9735C15.8392 12.7224 15.6686 13.3561 15.2709 13.9035C15.0355 14.2275 14.7504 14.5126 14.4264 14.748C13.8789 15.1458 13.2453 15.3163 12.4963 15.3975C11.76 15.4773 10.8339 15.4772 9.67272 15.4772H6.3273C5.16611 15.4772 4.24006 15.4773 3.50371 15.3975C2.75474 15.3163 2.1211 15.1458 1.57366 14.748C1.24963 14.5126 0.964549 14.2275 0.729131 13.9035C0.331407 13.3561 0.160817 12.7224 0.0796529 11.9735C-0.000126137 11.2371 1.25338e-09 10.3111 1.25338e-09 9.14986V6.85014C1.25329e-09 5.68895 -0.000126137 4.7629 0.0796529 4.02655C0.160817 3.27758 0.331407 2.64394 0.729131 2.0965C0.964549 1.77247 1.24963 1.48739 1.57366 1.25197C2.1211 0.854248 2.75474 0.683657 3.50371 0.602493C4.24006 0.522714 5.16611 0.522841 6.3273 0.522841H9.67272ZM5.54303 1.88715V14.1118C5.78636 14.1128 6.04709 14.1169 6.3273 14.1169H9.67272C10.8639 14.1169 11.7032 14.1164 12.3493 14.0465C12.9824 13.9779 13.3497 13.8494 13.6268 13.6482C13.8354 13.4966 14.0195 13.3125 14.1711 13.1039C14.3723 12.8268 14.5007 12.4595 14.5693 11.8264C14.6393 11.1803 14.6398 10.341 14.6398 9.14986V6.85014C14.6398 5.65896 14.6393 4.81967 14.5693 4.1736C14.5007 3.54048 14.3723 3.17318 14.1711 2.89609C14.0195 2.68747 13.8354 2.50337 13.6268 2.35179C13.3497 2.1506 12.9824 2.02212 12.3493 1.95353C11.7032 1.88358 10.8639 1.88307 9.67272 1.88307H6.3273C6.04709 1.88307 5.78636 1.8862 5.54303 1.88715ZM4.1828 1.91166C3.99125 1.9216 3.8148 1.93577 3.65076 1.95353C3.01764 2.02212 2.65034 2.1506 2.37325 2.35179C2.16463 2.50337 1.98052 2.68747 1.82895 2.89609C1.62776 3.17318 1.49928 3.54048 1.43069 4.1736C1.36074 4.81967 1.36023 5.65896 1.36023 6.85014V9.14986C1.36023 10.341 1.36074 11.1803 1.43069 11.8264C1.49928 12.4595 1.62776 12.8268 1.82895 13.1039C1.98052 13.3125 2.16463 13.4966 2.37325 13.6482C2.65034 13.8494 3.01764 13.9779 3.65076 14.0465C3.81478 14.0642 3.99127 14.0774 4.1828 14.0873V1.91166Z"/></svg></button><button class="sol-exp-rail-icon" title="${t("panel.explorer")}" onclick="window.__solExpRailOpen('explorer')"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h5l1.5 1.5h6a1 1 0 0 1 1 1V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></button><button class="sol-exp-rail-icon" title="${t("file.search")}" onclick="window.__solExpRailOpen('search')"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M9.8 9.8L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button><button class="sol-exp-rail-icon" title="${t("panel.scm")}" onclick="window.__solExpRailOpen('scm')"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" clipRule="evenodd" d="M6 5C6 4.44772 6.44772 4 7 4C7.55228 4 8 4.44772 8 5C8 5.55228 7.55228 6 7 6C6.44772 6 6 5.55228 6 5ZM8 7.82929C9.16519 7.41746 10 6.30622 10 5C10 3.34315 8.65685 2 7 2C5.34315 2 4 3.34315 4 5C4 6.30622 4.83481 7.41746 6 7.82929V16.1707C4.83481 16.5825 4 17.6938 4 19C4 20.6569 5.34315 22 7 22C8.65685 22 10 20.6569 10 19C10 17.7334 9.21506 16.6501 8.10508 16.2101C8.45179 14.9365 9.61653 14 11 14H13C16.3137 14 19 11.3137 19 8V7.82929C20.1652 7.41746 21 6.30622 21 5C21 3.34315 19.6569 2 18 2C16.3431 2 15 3.34315 15 5C15 6.30622 15.8348 7.41746 17 7.82929V8C17 10.2091 15.2091 12 13 12H11C9.87439 12 8.83566 12.3719 8 12.9996V7.82929ZM18 6C18.5523 6 19 5.55228 19 5C19 4.44772 18.5523 4 18 4C17.4477 4 17 4.44772 17 5C17 5.55228 17.4477 6 18 6ZM6 19C6 18.4477 6.44772 18 7 18C7.55228 18 8 18.4477 8 19C8 19.5523 7.55228 20 7 20C6.44772 20 6 19.5523 6 19Z" fill="currentColor"/></svg>${state.scm.gitChangesCount > 0 ? `<span class="sol-exp-activity-badge">${state.scm.gitChangesCount}</span>` : ""}</button><button class="sol-exp-rail-icon sol-exp-terminal-toggle${terminalOpen ? " active" : ""}" title="${document.documentElement.lang?.startsWith("zh") ? "终端" : "Terminal"}" onclick="window.__solExpToggleTerminal()"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M4.5 5.5l2.5 2.5-2.5 2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 10.5h2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button></div>`;
+						state.activeEl.innerHTML = `<div class="sol-exp-panel sol-exp-panel-rail"><button class="sol-exp-rail-btn" title="${document.documentElement.lang?.startsWith("zh") ? "展开面板" : "Expand panel"}" onclick="window.__solExpTogglePanel()"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" clipRule="evenodd" d="M9.67272 0.522841C10.8339 0.522841 11.76 0.522714 12.4963 0.602493C13.2453 0.683657 13.8789 0.854248 14.4264 1.25197C14.7504 1.48739 15.0355 1.77247 15.2709 2.0965C15.6686 2.64394 15.8392 3.27758 15.9204 4.02655C16.0002 4.7629 16 5.68895 16 6.85014V9.14986C16 10.3111 16.0002 11.2371 15.9204 11.9735C15.8392 12.7224 15.6686 13.3561 15.2709 13.9035C15.0355 14.2275 14.7504 14.5126 14.4264 14.748C13.8789 15.1458 13.2453 15.3163 12.4963 15.3975C11.76 15.4773 10.8339 15.4772 9.67272 15.4772H6.3273C5.16611 15.4772 4.24006 15.4773 3.50371 15.3975C2.75474 15.3163 2.1211 15.1458 1.57366 14.748C1.24963 14.5126 0.964549 14.2275 0.729131 13.9035C0.331407 13.3561 0.160817 12.7224 0.0796529 11.9735C-0.000126137 11.2371 1.25338e-09 10.3111 1.25338e-09 9.14986V6.85014C1.25329e-09 5.68895 -0.000126137 4.7629 0.0796529 4.02655C0.160817 3.27758 0.331407 2.64394 0.729131 2.0965C0.964549 1.77247 1.24963 1.48739 1.57366 1.25197C2.1211 0.854248 2.75474 0.683657 3.50371 0.602493C4.24006 0.522714 5.16611 0.522841 6.3273 0.522841H9.67272ZM5.54303 1.88715V14.1118C5.78636 14.1128 6.04709 14.1169 6.3273 14.1169H9.67272C10.8639 14.1169 11.7032 14.1164 12.3493 14.0465C12.9824 13.9779 13.3497 13.8494 13.6268 13.6482C13.8354 13.4966 14.0195 13.3125 14.1711 13.1039C14.3723 12.8268 14.5007 12.4595 14.5693 11.8264C14.6393 11.1803 14.6398 10.341 14.6398 9.14986V6.85014C14.6398 5.65896 14.6393 4.81967 14.5693 4.1736C14.5007 3.54048 14.3723 3.17318 14.1711 2.89609C14.0195 2.68747 13.8354 2.50337 13.6268 2.35179C13.3497 2.1506 12.9824 2.02212 12.3493 1.95353C11.7032 1.88358 10.8639 1.88307 9.67272 1.88307H6.3273C6.04709 1.88307 5.78636 1.8862 5.54303 1.88715ZM4.1828 1.91166C3.99125 1.9216 3.8148 1.93577 3.65076 1.95353C3.01764 2.02212 2.65034 2.1506 2.37325 2.35179C2.16463 2.50337 1.98052 2.68747 1.82895 2.89609C1.62776 3.17318 1.49928 3.54048 1.43069 4.1736C1.36074 4.81967 1.36023 5.65896 1.36023 6.85014V9.14986C1.36023 10.341 1.36074 11.1803 1.43069 11.8264C1.49928 12.4595 1.62776 12.8268 1.82895 13.1039C1.98052 13.3125 2.16463 13.4966 2.37325 13.6482C2.65034 13.8494 3.01764 13.9779 3.65076 14.0465C3.81478 14.0642 3.99127 14.0774 4.1828 14.0873V1.91166Z"/></svg></button><button class="sol-exp-rail-icon" title="${t("panel.explorer")}" onclick="window.__solExpRailOpen('explorer')"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h5l1.5 1.5h6a1 1 0 0 1 1 1V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></button><button class="sol-exp-rail-icon" title="${t("file.search")}" onclick="window.__solExpRailOpen('search')"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M9.8 9.8L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button><button class="sol-exp-rail-icon" title="${t("panel.scm")}" onclick="window.__solExpRailOpen('scm')"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" clipRule="evenodd" d="M6 5C6 4.44772 6.44772 4 7 4C7.55228 4 8 4.44772 8 5C8 5.55228 7.55228 6 7 6C6.44772 6 6 5.55228 6 5ZM8 7.82929C9.16519 7.41746 10 6.30622 10 5C10 3.34315 8.65685 2 7 2C5.34315 2 4 3.34315 4 5C4 6.30622 4.83481 7.41746 6 7.82929V16.1707C4.83481 16.5825 4 17.6938 4 19C4 20.6569 5.34315 22 7 22C8.65685 22 10 20.6569 10 19C10 17.7334 9.21506 16.6501 8.10508 16.2101C8.45179 14.9365 9.61653 14 11 14H13C16.3137 14 19 11.3137 19 8V7.82929C20.1652 7.41746 21 6.30622 21 5C21 3.34315 19.6569 2 18 2C16.3431 2 15 3.34315 15 5C15 6.30622 15.8348 7.41746 17 7.82929V8C17 10.2091 15.2091 12 13 12H11C9.87439 12 8.83566 12.3719 8 12.9996V7.82929ZM18 6C18.5523 6 19 5.55228 19 5C19 4.44772 18.5523 4 18 4C17.4477 4 17 4.44772 17 5C17 5.55228 17.4477 6 18 6ZM6 19C6 18.4477 6.44772 18 7 18C7.55228 18 8 18.4477 8 19C8 19.5523 7.55228 20 7 20C6.44772 20 6 19.5523 6 19Z" fill="currentColor"/></svg>${state.scm.gitChangesCount > 0 ? `<span class="sol-exp-activity-badge">${state.scm.gitChangesCount}</span>` : ""}</button><button class="sol-exp-rail-icon sol-exp-terminal-toggle${state.terminal.terminalOpen ? " active" : ""}" title="${document.documentElement.lang?.startsWith("zh") ? "终端" : "Terminal"}" onclick="window.__solExpToggleTerminal()"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M4.5 5.5l2.5 2.5-2.5 2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 10.5h2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button></div>`;
 
 						return;
 
@@ -177,7 +177,7 @@ export function mountPanel(ctx: ClientContext): void {
 
           </div>
 
-          <div class="sol-exp-activity-btn ${terminalOpen ? "active" : ""}" onclick="window.__solExpToggleTerminal()" title="${t("panel.terminal")}">
+          <div class="sol-exp-activity-btn ${state.terminal.terminalOpen ? "active" : ""}" onclick="window.__solExpToggleTerminal()" title="${t("panel.terminal")}">
 
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M4.5 5.5l2.5 2.5-2.5 2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 10.5h2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
 
@@ -418,18 +418,6 @@ export function mountPanel(ctx: ClientContext): void {
 				// ── Embedded multi-tab terminal (ConPTY via the host service) ──
 				const TERM_CELL_W = 9;
 				const TERM_CELL_H = 18;
-				let terminalOpen = false;
-				let terminalSupported = true;
-				let terminalHeight = 400;
-				let terminalMaxHeight = 1000;
-				let terminalMaxTabs = 8;
-				let terminalShell = "";
-				let terminalTabs = [];
-				let terminalSeq = 0;
-				let terminalBusy = false;
-				let terminalActiveTab = 0;
-				let terminalShellEl = null;
-				let terminalRebootTimer = null;
 				const termLang = () => document.documentElement.lang?.startsWith("zh") === true;
 				const terminalCwd = () => gitRoot() || root;
 				const terminalCellSize = (el) => ({
@@ -454,7 +442,7 @@ export function mountPanel(ctx: ClientContext): void {
 				};
 
 				const ensureTerminalShell = () => {
-					if (terminalShellEl !== null) return terminalShellEl;
+					if (state.terminal.terminalShellEl !== null) return state.terminal.terminalShellEl;
 					const shell = document.createElement("div");
 					shell.className = "sol-exp-terminal-shell";
 					// Start collapsed (0 height) so the first open animates.
@@ -462,24 +450,24 @@ export function mountPanel(ctx: ClientContext): void {
 					shell.style.opacity = "0";
 					shell.style.display = "flex";
 					shell.innerHTML = `<div class="sol-exp-term-resize"></div><div class="sol-exp-term-tabs"></div><div class="sol-exp-term-body"><div class="sol-exp-term-exited" style="display:none">${t("terminal.empty")}</div></div>`;
-					terminalShellEl = shell;
+					state.terminal.terminalShellEl = shell;
 					// Keep the PTY size in sync with the rendered body: any width
 					// change (window, sidebar drag, layout shifts) re-fits and
 					// rebuilds so pwsh wraps and redraws at the same columns.
 					const sizeObs = new ResizeObserver(() => {
-						if (terminalTabs.length === 0) return;
-						if (Date.now() < termSettleUntil) return;
+						if (state.terminal.terminalTabs.length === 0) return;
+						if (Date.now() < state.terminal.termSettleUntil) return;
 						fitTerminal();
 						scheduleTerminalReboot();
 					});
 					const termBody = shell.querySelector(".sol-exp-term-body");
 					if (termBody !== null) sizeObs.observe(termBody);
-					termSizeObserver = sizeObs;
+					state.terminal.termSizeObserver = sizeObs;
 					let dragStart = null;
 					const onMove = (e: PointerEvent) => {
 						if (dragStart === null) return;
-						terminalHeight = Math.min(terminalMaxHeight, Math.max(120, dragStart.h - (e.clientY - dragStart.y)));
-						shell.style.height = terminalHeight + "px";
+						state.terminal.terminalHeight = Math.min(state.terminal.terminalMaxHeight, Math.max(120, dragStart.h - (e.clientY - dragStart.y)));
+						shell.style.height = state.terminal.terminalHeight + "px";
 					};
 					const onUp = () => {
 						if (dragStart === null) return;
@@ -496,7 +484,7 @@ export function mountPanel(ctx: ClientContext): void {
 					const grab = shell.querySelector(".sol-exp-term-resize") as HTMLDivElement;
 					grab.addEventListener("pointerdown", (e: PointerEvent) => {
 						e.preventDefault();
-						dragStart = { y: e.clientY, h: terminalHeight };
+						dragStart = { y: e.clientY, h: state.terminal.terminalHeight };
 						// No transition while dragging: the panel must track the
 						// pointer one-to-one, not ease behind it.
 						shell.style.transition = "none";
@@ -509,15 +497,15 @@ export function mountPanel(ctx: ClientContext): void {
 				};
 
 				const renderTerminalTabs = () => {
-					if (terminalShellEl === null) return;
-					const bar = terminalShellEl.querySelector(".sol-exp-term-tabs");
-					const body = terminalShellEl.querySelector(".sol-exp-term-body");
+					if (state.terminal.terminalShellEl === null) return;
+					const bar = state.terminal.terminalShellEl.querySelector(".sol-exp-term-tabs");
+					const body = state.terminal.terminalShellEl.querySelector(".sol-exp-term-body");
 					bar.innerHTML = "";
-					terminalTabs.forEach((tab, i) => {
+					state.terminal.terminalTabs.forEach((tab, i) => {
 						tab.pane.dataset.index = String(i);
 						const btn = document.createElement("button");
 						btn.type = "button";
-						btn.className = "sol-exp-term-tab" + (i === terminalActiveTab ? " active" : "");
+						btn.className = "sol-exp-term-tab" + (i === state.terminal.terminalActiveTab ? " active" : "");
 						btn.title = t("panel.terminal") + " " + (i + 1) + " — " + tab.shell;
 						const label = document.createElement("span");
 						label.style.cssText = "flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left";
@@ -538,32 +526,32 @@ export function mountPanel(ctx: ClientContext): void {
 					add.className = "sol-exp-term-add";
 					add.title = t("terminal.new");
 					add.textContent = "+";
-					add.disabled = terminalBusy || terminalTabs.length >= terminalMaxTabs;
+					add.disabled = state.terminal.terminalBusy || state.terminal.terminalTabs.length >= state.terminal.terminalMaxTabs;
 					add.addEventListener("click", () => addTerminalTab());
 					bar.appendChild(add);
-					body.querySelectorAll(".sol-exp-term-pane").forEach((p) => p.classList.toggle("active", p.dataset.index === String(terminalActiveTab)));
+					body.querySelectorAll(".sol-exp-term-pane").forEach((p) => p.classList.toggle("active", p.dataset.index === String(state.terminal.terminalActiveTab)));
 					const empty = body.querySelector(".sol-exp-term-exited");
-					empty.style.display = terminalTabs.length === 0 ? "flex" : "none";
+					empty.style.display = state.terminal.terminalTabs.length === 0 ? "flex" : "none";
 				};
 
 				const activateTerminalTab = (i) => {
-					terminalActiveTab = i;
+					state.terminal.terminalActiveTab = i;
 					renderTerminalTabs();
 					fitTerminal();
 				};
 
 				const fitTerminal = () => {
-					const tab = terminalTabs[terminalActiveTab];
-					if (!tab || !terminalOpen) return;
+					const tab = state.terminal.terminalTabs[state.terminal.terminalActiveTab];
+					if (!tab || !state.terminal.terminalOpen) return;
 					try { tab.fit.fit(); } catch { /* hidden or sizing */ }
 				};
 
 				const scheduleTerminalReboot = () => {
-					if (terminalRebootTimer !== null) clearTimeout(terminalRebootTimer);
-					terminalRebootTimer = setTimeout(async () => {
-						terminalRebootTimer = null;
-						const tab = terminalTabs[terminalActiveTab];
-						if (!tab || tab.exited || !terminalOpen) return;
+					if (state.terminal.terminalRebootTimer !== null) clearTimeout(state.terminal.terminalRebootTimer);
+					state.terminal.terminalRebootTimer = setTimeout(async () => {
+						state.terminal.terminalRebootTimer = null;
+						const tab = state.terminal.terminalTabs[state.terminal.terminalActiveTab];
+						if (!tab || tab.exited || !state.terminal.terminalOpen) return;
 						// Authoritative size: xterm's own post-fit cols/rows, so the
 						// PTY wraps and redraws at EXACTLY the columns/rows the
 						// renderer uses (an estimate like paneWidth/9 drifts from
@@ -572,14 +560,14 @@ export function mountPanel(ctx: ClientContext): void {
 						let size = { cols: tab.term.cols, rows: tab.term.rows };
 						if (!size.cols || !size.rows) {
 							size = terminalCellSize(tab.pane);
-							size.rows = Math.max(8, Math.floor((terminalHeight - 40) / TERM_CELL_H));
+							size.rows = Math.max(8, Math.floor((state.terminal.terminalHeight - 40) / TERM_CELL_H));
 						}
 						// Height-only changes keep the shell alive: stale rows only
 						// affect scroll-region edge cases, while a width (cols)
 						// mismatch corrupts line wrapping and redraws. Reboot —
 						// and with it the shell — only when cols really change.
-						if (termLastSize !== null && termLastSize.cols === size.cols) return;
-						termLastSize = size;
+						if (state.terminal.termLastSize !== null && state.terminal.termLastSize.cols === size.cols) return;
+						state.terminal.termLastSize = size;
 						try {
 							const resp = await fetch("/solution-explorer/terminal/" + tab.id + "/reboot", {
 								method: "POST",
@@ -595,31 +583,22 @@ export function mountPanel(ctx: ClientContext): void {
 				// ONE shared SSE stream carries every tab's output — per-tab streams
 				// would exhaust the browser's connection pool (~6 per origin)
 				// after a few terminals.
-				let terminalStreamOn = false;
-				let terminalStreamCtrl = null;
-				let termSizeObserver = null;
-				let termSettleUntil = 0;
-				let termLastSize = null;
 
 				// Input batching: keystrokes coalesce into one POST every few ms
 				// instead of one fetch per key (typing bursts stall otherwise).
 				// Pending/in-flight state is PER TAB so typing in one terminal can
 				// never leak keystrokes into another.
-				let termInputTimer = null;
-				const termInputPending = new Map();
-				const termInputInFlight = new Map();
-				const termInputTail = new Map();
 				const flushTerminalInput = async () => {
-					termInputTimer = null;
-					const batch = [...termInputPending.entries()];
-					termInputPending.clear();
+					state.terminal.termInputTimer = null;
+					const batch = [...state.terminal.termInputPending.entries()];
+					state.terminal.termInputPending.clear();
 					for (const [id, data] of batch) {
 						if (data === "") continue;
-						if (termInputInFlight.get(id)) {
-							termInputTail.set(id, (termInputTail.get(id) || "") + data);
+						if (state.terminal.termInputInFlight.get(id)) {
+							state.terminal.termInputTail.set(id, (state.terminal.termInputTail.get(id) || "") + data);
 							continue;
 						}
-						termInputInFlight.set(id, true);
+						state.terminal.termInputInFlight.set(id, true);
 						(async () => {
 							try {
 								await fetch("/solution-explorer/terminal/" + id + "/input", {
@@ -628,24 +607,23 @@ export function mountPanel(ctx: ClientContext): void {
 									body: JSON.stringify({ data }),
 								});
 							} catch { /* keep typing */ }
-							termInputInFlight.set(id, false);
-							const tail = termInputTail.get(id);
-							termInputTail.set(id, "");
+							state.terminal.termInputInFlight.set(id, false);
+							const tail = state.terminal.termInputTail.get(id);
+							state.terminal.termInputTail.set(id, "");
 							if (tail) queueTerminalInput({ id }, tail);
 						})();
 					}
 				};
 				const queueTerminalInput = (tab, data) => {
-					termInputPending.set(tab.id, (termInputPending.get(tab.id) || "") + data);
-					if (termInputTimer === null) termInputTimer = setTimeout(flushTerminalInput, 12);
+					state.terminal.termInputPending.set(tab.id, (state.terminal.termInputPending.get(tab.id) || "") + data);
+					if (state.terminal.termInputTimer === null) state.terminal.termInputTimer = setTimeout(flushTerminalInput, 12);
 				};
 
 				// Output coalescing: burst frames accumulate and flush to xterm
 				// once per animation frame instead of one write per frame.
-				let termOutputFlush = null;
 				const flushTerminalOutput = () => {
-					termOutputFlush = null;
-					for (const tab of terminalTabs) {
+					state.terminal.termOutputFlush = null;
+					for (const tab of state.terminal.terminalTabs) {
 						if (tab._out !== undefined && tab._out !== "") {
 							const s = tab._out;
 							tab._out = "";
@@ -655,18 +633,18 @@ export function mountPanel(ctx: ClientContext): void {
 				};
 				const queueTerminalOutput = (tab, text) => {
 					tab._out = (tab._out || "") + text;
-					if (termOutputFlush === null) termOutputFlush = requestAnimationFrame(flushTerminalOutput);
+					if (state.terminal.termOutputFlush === null) state.terminal.termOutputFlush = requestAnimationFrame(flushTerminalOutput);
 				};
 
 				const ensureTerminalStream = () => {
-					if (terminalStreamOn) return;
-					terminalStreamOn = true;
-					terminalStreamCtrl = new AbortController();
+					if (state.terminal.terminalStreamOn) return;
+					state.terminal.terminalStreamOn = true;
+					state.terminal.terminalStreamCtrl = new AbortController();
 					(async () => {
 						try {
-							const resp = await fetch("/solution-explorer/terminal/stream", { signal: terminalStreamCtrl.signal });
+							const resp = await fetch("/solution-explorer/terminal/stream", { signal: state.terminal.terminalStreamCtrl.signal });
 							if (!resp.ok || !resp.body) {
-								terminalStreamOn = false;
+								state.terminal.terminalStreamOn = false;
 								// A 404 means the HOST is still running an older
 								// build (the shared stream route is new) — a page
 								// refresh cannot fix that; the app process must
@@ -677,7 +655,7 @@ export function mountPanel(ctx: ClientContext): void {
 							const reader = resp.body.getReader();
 							const decoder = new TextDecoder();
 							let buf = "";
-							while (terminalStreamOn) {
+							while (state.terminal.terminalStreamOn) {
 								const { done, value } = await reader.read();
 								if (done) break;
 								buf += decoder.decode(value, { stream: true });
@@ -696,7 +674,7 @@ export function mountPanel(ctx: ClientContext): void {
 										const sep = data.indexOf("|");
 										const id = data.slice(0, sep);
 										const b64 = data.slice(sep + 1);
-										const tab = terminalTabs.find((x) => x.id === id);
+										const tab = state.terminal.terminalTabs.find((x) => x.id === id);
 										if (tab && b64) {
 											try {
 												// base64 → bytes → streaming UTF-8 decode:
@@ -709,10 +687,10 @@ export function mountPanel(ctx: ClientContext): void {
 											} catch { /* bad frame */ }
 										}
 									} else if (ev === "end") {
-										const tab = terminalTabs.find((x) => x.id === data);
+										const tab = state.terminal.terminalTabs.find((x) => x.id === data);
 										if (tab && !tab.exited) {
 											try { tab.decoder.decode(); } catch { /* flush tail */ }
-											if (termOutputFlush !== null) { cancelAnimationFrame(termOutputFlush); termOutputFlush = null; }
+											if (state.terminal.termOutputFlush !== null) { cancelAnimationFrame(state.terminal.termOutputFlush); state.terminal.termOutputFlush = null; }
 											flushTerminalOutput();
 											tab.exited = true;
 											tab.term.write("\r\n\x1b[90m[" + (termLang() ? "进程已退出" : "process exited") + "]\x1b[0m\r\n");
@@ -725,29 +703,29 @@ export function mountPanel(ctx: ClientContext): void {
 								}
 							}
 						} catch { /* aborted or dropped */ }
-						terminalStreamOn = false;
+						state.terminal.terminalStreamOn = false;
 					})();
 				};
 
 				const stopTerminalStream = () => {
-					terminalStreamOn = false;
-					if (terminalStreamCtrl !== null) { try { terminalStreamCtrl.abort(); } catch { /* ignore */ } terminalStreamCtrl = null; }
+					state.terminal.terminalStreamOn = false;
+					if (state.terminal.terminalStreamCtrl !== null) { try { state.terminal.terminalStreamCtrl.abort(); } catch { /* ignore */ } state.terminal.terminalStreamCtrl = null; }
 				};
 
 				const addTerminalTab = async () => {
-					if (terminalBusy) return;
-					if (!terminalSupported) { showToast(t("terminal.unsupported")); return; }
+					if (state.terminal.terminalBusy) return;
+					if (!state.terminal.terminalSupported) { showToast(t("terminal.unsupported")); return; }
 					if (root === "") { showToast(termLang() ? "先打开工作区再使用终端" : "Open a workspace first"); return; }
-					if (terminalTabs.length >= terminalMaxTabs) {
-						showToast(termLang() ? "最多 " + terminalMaxTabs + " 个终端标签" : "Up to " + terminalMaxTabs + " terminal tabs");
+					if (state.terminal.terminalTabs.length >= state.terminal.terminalMaxTabs) {
+						showToast(termLang() ? "最多 " + state.terminal.terminalMaxTabs + " 个终端标签" : "Up to " + state.terminal.terminalMaxTabs + " terminal tabs");
 						return;
 					}
-					terminalBusy = true;
+					state.terminal.terminalBusy = true;
 					renderTerminalTabs();
 					try {
 						const pane = document.createElement("div");
 						pane.className = "sol-exp-term-pane";
-						pane.dataset.index = String(terminalTabs.length);
+						pane.dataset.index = String(state.terminal.terminalTabs.length);
 						ensureTerminalShell().querySelector(".sol-exp-term-body").appendChild(pane);
 						const term = new Terminal({
 							fontSize: 13,
@@ -777,7 +755,7 @@ export function mountPanel(ctx: ClientContext): void {
 						const shellEl = ensureTerminalShell();
 						const prevHeight = shellEl.style.height;
 						const prevOpacity = shellEl.style.opacity;
-						shellEl.style.height = terminalHeight + "px";
+						shellEl.style.height = state.terminal.terminalHeight + "px";
 						shellEl.style.opacity = "1";
 						let exactCols = 20;
 						let exactRows = 8;
@@ -791,11 +769,11 @@ export function mountPanel(ctx: ClientContext): void {
 						const resp = await fetch("/solution-explorer/terminal", {
 							method: "POST",
 							headers: { "content-type": "application/json" },
-							body: JSON.stringify({ root, cwd: terminalCwd(), shell: terminalShell || undefined, rows: exactRows, cols: exactCols }),
+							body: JSON.stringify({ root, cwd: terminalCwd(), shell: state.terminal.terminalShell || undefined, rows: exactRows, cols: exactCols }),
 						});
 						const res = await resp.json();
 						if (!res.ok) {
-							terminalSupported = res.code !== "unsupported";
+							state.terminal.terminalSupported = res.code !== "unsupported";
 							pane.remove();
 							term.dispose();
 							if (res.code === "unsupported") showToast(t("terminal.unsupported"));
@@ -804,15 +782,15 @@ export function mountPanel(ctx: ClientContext): void {
 						}
 						const tab = {
 							id: res.value.id,
-							shell: res.value.shell || terminalShellName(terminalShell) || "shell",
+							shell: res.value.shell || terminalShellName(state.terminal.terminalShell) || "shell",
 							title: terminalShellName(res.value.shell),
 							pane, term, fit,
 							decoder: new TextDecoder(),
 							exited: false, aborted: false,
 						};
-						terminalSeq++;
-						terminalTabs.push(tab);
-						terminalActiveTab = terminalTabs.length - 1;
+						state.terminal.terminalSeq++;
+						state.terminal.terminalTabs.push(tab);
+						state.terminal.terminalActiveTab = state.terminal.terminalTabs.length - 1;
 						try { fit.fit(); } catch { /* zero-size parent */ }
 						term.onData((data) => queueTerminalInput(tab, data));
 						renderTerminalTabs();
@@ -820,24 +798,24 @@ export function mountPanel(ctx: ClientContext): void {
 					} catch (err) {
 						showTerminalError(err instanceof Error ? err.message : String(err));
 					} finally {
-						terminalBusy = false;
+						state.terminal.terminalBusy = false;
 						renderTerminalTabs();
 					}
 				};
 
 				const closeTerminalTab = async (i) => {
-					const tab = terminalTabs[i];
+					const tab = state.terminal.terminalTabs[i];
 					if (!tab) return;
 					tab.aborted = true;
-					if (terminalRebootTimer !== null) { clearTimeout(terminalRebootTimer); terminalRebootTimer = null; }
-					terminalTabs.splice(i, 1);
-					if (terminalActiveTab >= terminalTabs.length) terminalActiveTab = Math.max(0, terminalTabs.length - 1);
+					if (state.terminal.terminalRebootTimer !== null) { clearTimeout(state.terminal.terminalRebootTimer); state.terminal.terminalRebootTimer = null; }
+					state.terminal.terminalTabs.splice(i, 1);
+					if (state.terminal.terminalActiveTab >= state.terminal.terminalTabs.length) state.terminal.terminalActiveTab = Math.max(0, state.terminal.terminalTabs.length - 1);
 					fetch("/solution-explorer/terminal/" + tab.id, { method: "DELETE" }).catch(() => {});
 					try { tab.term.dispose(); } catch { /* already gone */ }
 					tab.pane.remove();
 					// Closing the last terminal collapses the whole bottom panel.
-					if (terminalTabs.length === 0) {
-						terminalOpen = false;
+					if (state.terminal.terminalTabs.length === 0) {
+						state.terminal.terminalOpen = false;
 						syncTerminalUI();
 						render(); // refresh the rail/activity toggle active state
 						return;
@@ -855,9 +833,9 @@ export function mountPanel(ctx: ClientContext): void {
 				};
 
 				const placeTerminal = () => {
-					if (terminalShellEl === null) return;
-					terminalShellEl.remove();
-					if (!terminalOpen) return;
+					if (state.terminal.terminalShellEl === null) return;
+					state.terminal.terminalShellEl.remove();
+					if (!state.terminal.terminalOpen) return;
 					const centerEl = terminalCenterCol();
 					if (centerEl === null) return;
 					// The terminal lives INSIDE the center column's flow, as its
@@ -871,15 +849,15 @@ export function mountPanel(ctx: ClientContext): void {
 						const first = centerEl.firstElementChild;
 						if (first !== null) { first.style.flex = "1 1 0%"; first.style.minHeight = "0"; }
 					}
-					centerEl.appendChild(terminalShellEl);
+					centerEl.appendChild(state.terminal.terminalShellEl);
 				};
 
 				const syncTerminalUI = () => {
-					if (terminalOpen) {
+					if (state.terminal.terminalOpen) {
 						const shell = ensureTerminalShell();
 						// Ignore size events during the open/close animation so
 						// the height transition can't trigger resize-rebuilds.
-						termSettleUntil = Date.now() + 420;
+						state.terminal.termSettleUntil = Date.now() + 420;
 						shell.style.transition = "height .2s cubic-bezier(.2,.7,.3,1), opacity .16s ease";
 						shell.style.display = "flex";
 						placeTerminal();
@@ -890,16 +868,16 @@ export function mountPanel(ctx: ClientContext): void {
 						shell.style.opacity = "0";
 						requestAnimationFrame(() => {
 							requestAnimationFrame(() => {
-								shell.style.height = terminalHeight + "px";
+								shell.style.height = state.terminal.terminalHeight + "px";
 								shell.style.opacity = "1";
 								window.setTimeout(() => { fitTerminal(); scheduleTerminalReboot(); }, 260);
 							});
 						});
 					} else {
-						if (terminalShellEl !== null) {
-							terminalShellEl.style.transition = "height .18s cubic-bezier(.2,.7,.3,1), opacity .14s ease";
-							terminalShellEl.style.height = "0px";
-							terminalShellEl.style.opacity = "0";
+						if (state.terminal.terminalShellEl !== null) {
+							state.terminal.terminalShellEl.style.transition = "height .18s cubic-bezier(.2,.7,.3,1), opacity .14s ease";
+							state.terminal.terminalShellEl.style.height = "0px";
+							state.terminal.terminalShellEl.style.opacity = "0";
 							// Leave the zero-height shell attached: it occupies no
 							// layout space, so the composer stays where it is.
 						}
@@ -910,11 +888,11 @@ export function mountPanel(ctx: ClientContext): void {
 				};
 
 				const toggleTerminal = () => {
-					if (!terminalSupported && !terminalOpen) { showToast(t("terminal.unsupported")); return; }
-					terminalOpen = !terminalOpen;
+					if (!state.terminal.terminalSupported && !state.terminal.terminalOpen) { showToast(t("terminal.unsupported")); return; }
+					state.terminal.terminalOpen = !state.terminal.terminalOpen;
 					syncTerminalUI();
 					render(); // refresh rail strip / activity button active state
-					if (terminalOpen && terminalTabs.length === 0) addTerminalTab();
+					if (state.terminal.terminalOpen && state.terminal.terminalTabs.length === 0) addTerminalTab();
 				};
 				window.__solExpToggleTerminal = toggleTerminal;
 				const onWindowResize = () => { fitTerminal(); scheduleTerminalReboot(); };
@@ -929,16 +907,16 @@ export function mountPanel(ctx: ClientContext): void {
 						if (res && res.ok && res.value) {
 							if (typeof res.value.defaultWidth === "number" && res.value.defaultWidth >= PANEL_MIN && res.value.defaultWidth <= PANEL_MAX) state.layout.PANEL_WIDTH = res.value.defaultWidth;
 							if (typeof res.value.autoOpen === "boolean") state.layout.panelAutoOpen = res.value.autoOpen;
-							if (typeof res.value.terminalHeight === "number") terminalHeight = res.value.terminalHeight;
-							if (typeof res.value.terminalMaxHeight === "number") terminalMaxHeight = res.value.terminalMaxHeight;
-							if (terminalHeight > terminalMaxHeight) terminalHeight = terminalMaxHeight;
-							if (typeof res.value.terminalMaxTabs === "number") terminalMaxTabs = res.value.terminalMaxTabs;
-							if (typeof res.value.terminalShell === "string") terminalShell = res.value.terminalShell;
+							if (typeof res.value.terminalHeight === "number") state.terminal.terminalHeight = res.value.terminalHeight;
+							if (typeof res.value.terminalMaxHeight === "number") state.terminal.terminalMaxHeight = res.value.terminalMaxHeight;
+							if (state.terminal.terminalHeight > state.terminal.terminalMaxHeight) state.terminal.terminalHeight = state.terminal.terminalMaxHeight;
+							if (typeof res.value.terminalMaxTabs === "number") state.terminal.terminalMaxTabs = res.value.terminalMaxTabs;
+							if (typeof res.value.terminalShell === "string") state.terminal.terminalShell = res.value.terminalShell;
 							// Re-apply immediately to an already-open terminal:
 							// height follows the saved value; the + button and tab
 							// cap follow maxTabs. (Shell changes affect NEW tabs.)
-							if (terminalOpen && terminalShellEl !== null) {
-								terminalShellEl.style.height = terminalHeight + "px";
+							if (state.terminal.terminalOpen && state.terminal.terminalShellEl !== null) {
+								state.terminal.terminalShellEl.style.height = state.terminal.terminalHeight + "px";
 								placeTerminal();
 								window.setTimeout(fitTerminal, 60);
 								renderTerminalTabs();
@@ -1332,19 +1310,19 @@ export function mountPanel(ctx: ClientContext): void {
 
 					if (state.layout.panelFrame !== null && state.layout.panelCol !== null) state.layout.panelCol.remove();
 
-					if (terminalShellEl !== null) terminalShellEl.remove();
+					if (state.terminal.terminalShellEl !== null) state.terminal.terminalShellEl.remove();
 
-					if (termSizeObserver !== null) { termSizeObserver.disconnect(); termSizeObserver = null; }
+					if (state.terminal.termSizeObserver !== null) { state.terminal.termSizeObserver.disconnect(); state.terminal.termSizeObserver = null; }
 
 					stopTerminalStream();
 
-					if (termInputTimer !== null) { clearTimeout(termInputTimer); termInputTimer = null; }
+					if (state.terminal.termInputTimer !== null) { clearTimeout(state.terminal.termInputTimer); state.terminal.termInputTimer = null; }
 
-					if (termOutputFlush !== null) { cancelAnimationFrame(termOutputFlush); termOutputFlush = null; }
+					if (state.terminal.termOutputFlush !== null) { cancelAnimationFrame(state.terminal.termOutputFlush); state.terminal.termOutputFlush = null; }
 
-					for (const tab of terminalTabs) { fetch("/solution-explorer/terminal/" + tab.id, { method: "DELETE" }).catch(() => {}); }
+					for (const tab of state.terminal.terminalTabs) { fetch("/solution-explorer/terminal/" + tab.id, { method: "DELETE" }).catch(() => {}); }
 
-					terminalTabs = [];
+					state.terminal.terminalTabs = [];
 
 					window.removeEventListener("resize", onWindowResize);
 
