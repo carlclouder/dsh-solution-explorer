@@ -50,7 +50,6 @@ export function mountPanel(ctx: ClientContext): void {
 				// the section with the class — otherwise the repository section
 				// (and the top-half sections after a status refresh) silently
 				// re-expand and the collapse button looks broken.
-				let collapsedSections = /* @__PURE__ */ new Set<string>();
 
 
 
@@ -59,58 +58,24 @@ export function mountPanel(ctx: ClientContext): void {
 
 
 
-				let gitStatus = null;
-				let gitStatusChanged = true;
-				let lastHeadHash = "";
-				let repos = [];
-				let activeRepo = "";
-				const gitRoot = () => activeRepo || root;
+				const gitRoot = () => state.scm.activeRepo || root;
 
-				let commitMessage = "";
 
-				let committing = false;
-				let commitsPage = 0;
-				let commitsAllLoaded = false;
-				let commitsLoading = false;
 				// Cached innerHTML of the recent-commits list: null = not loaded
 				// yet (render shows the loading placeholder), "" = loaded but
 				// empty. render() rebuilds the list from this cache, so a render
 				// landing after the git-log response can never wipe a filled
 				// list back to the placeholder (e.g. tree/repos loads finishing
 				// late after a conversation switch).
-				let commitsHTML: string | null = null;
 				// Generation counter: bumped on every reload/switch so a git-log
 				// fetch still in flight for the previous repo/branch is discarded
 				// instead of writing stale commits into the current list.
-				let commitsSeq = 0;
-				let graphLanes = [];
-				let graphPrevLanes = [];
-				let graphDetailOpen = "";
-				let graphColorInUse = new Set();
 				// Commit-detail cache (hash -> detail) shared by the inline
 				// expansion and the hover tooltip; cleared on session change.
-				let commitDetailCache = new Map();
 				// Hover tooltip state for commit rows (custom tooltip replaces
 				// the native title attribute).
-				let commitTipEl: HTMLElement | null = null;
-				let commitTipHash = "";       // hash currently shown in the tooltip
-				let commitTipPending = "";     // hash queued to show after hover delay
-				let commitTipShowTimer: any = 0;
-let commitTipHideTimer: any = 0;
 				// Remotes fetch guard for the "open on GitHub" tooltip link.
-				let remotesResolved = false;
-				let remotePanelOpen = false;
-				let branchPanelOpen = false;
-				let remotesList = [];
-				let branchesList = [];
-				let remoteName = "";
-				let remoteUrl = "";
-				let branchName = "";
-				let branchFrom = "";
-				let branchNewName = "";
-				let tagsList = [];
 
-				let gitChangesCount = 0;
 
 				let activeEl = null;
 
@@ -122,7 +87,7 @@ let commitTipHideTimer: any = 0;
 					// rebuild here would reset flex-basis from the dragged pixel
 					// value back to the percentage default and make the divider
 					// jump (visible on the first drag after startup).
-					if (scmDragging) return;
+					if (state.scm.scmDragging) return;
 
 					if (!activeEl) return;
 
@@ -138,7 +103,7 @@ let commitTipHideTimer: any = 0;
 						// 16px panel-left glyph (same Figma source the shell
 						// swaps in on rail hover), so the folded panel reads as
 						// a sibling of the native collapsed rail.
-						activeEl.innerHTML = `<div class="sol-exp-panel sol-exp-panel-rail"><button class="sol-exp-rail-btn" title="${document.documentElement.lang?.startsWith("zh") ? "展开面板" : "Expand panel"}" onclick="window.__solExpTogglePanel()"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" clipRule="evenodd" d="M9.67272 0.522841C10.8339 0.522841 11.76 0.522714 12.4963 0.602493C13.2453 0.683657 13.8789 0.854248 14.4264 1.25197C14.7504 1.48739 15.0355 1.77247 15.2709 2.0965C15.6686 2.64394 15.8392 3.27758 15.9204 4.02655C16.0002 4.7629 16 5.68895 16 6.85014V9.14986C16 10.3111 16.0002 11.2371 15.9204 11.9735C15.8392 12.7224 15.6686 13.3561 15.2709 13.9035C15.0355 14.2275 14.7504 14.5126 14.4264 14.748C13.8789 15.1458 13.2453 15.3163 12.4963 15.3975C11.76 15.4773 10.8339 15.4772 9.67272 15.4772H6.3273C5.16611 15.4772 4.24006 15.4773 3.50371 15.3975C2.75474 15.3163 2.1211 15.1458 1.57366 14.748C1.24963 14.5126 0.964549 14.2275 0.729131 13.9035C0.331407 13.3561 0.160817 12.7224 0.0796529 11.9735C-0.000126137 11.2371 1.25338e-09 10.3111 1.25338e-09 9.14986V6.85014C1.25329e-09 5.68895 -0.000126137 4.7629 0.0796529 4.02655C0.160817 3.27758 0.331407 2.64394 0.729131 2.0965C0.964549 1.77247 1.24963 1.48739 1.57366 1.25197C2.1211 0.854248 2.75474 0.683657 3.50371 0.602493C4.24006 0.522714 5.16611 0.522841 6.3273 0.522841H9.67272ZM5.54303 1.88715V14.1118C5.78636 14.1128 6.04709 14.1169 6.3273 14.1169H9.67272C10.8639 14.1169 11.7032 14.1164 12.3493 14.0465C12.9824 13.9779 13.3497 13.8494 13.6268 13.6482C13.8354 13.4966 14.0195 13.3125 14.1711 13.1039C14.3723 12.8268 14.5007 12.4595 14.5693 11.8264C14.6393 11.1803 14.6398 10.341 14.6398 9.14986V6.85014C14.6398 5.65896 14.6393 4.81967 14.5693 4.1736C14.5007 3.54048 14.3723 3.17318 14.1711 2.89609C14.0195 2.68747 13.8354 2.50337 13.6268 2.35179C13.3497 2.1506 12.9824 2.02212 12.3493 1.95353C11.7032 1.88358 10.8639 1.88307 9.67272 1.88307H6.3273C6.04709 1.88307 5.78636 1.8862 5.54303 1.88715ZM4.1828 1.91166C3.99125 1.9216 3.8148 1.93577 3.65076 1.95353C3.01764 2.02212 2.65034 2.1506 2.37325 2.35179C2.16463 2.50337 1.98052 2.68747 1.82895 2.89609C1.62776 3.17318 1.49928 3.54048 1.43069 4.1736C1.36074 4.81967 1.36023 5.65896 1.36023 6.85014V9.14986C1.36023 10.341 1.36074 11.1803 1.43069 11.8264C1.49928 12.4595 1.62776 12.8268 1.82895 13.1039C1.98052 13.3125 2.16463 13.4966 2.37325 13.6482C2.65034 13.8494 3.01764 13.9779 3.65076 14.0465C3.81478 14.0642 3.99127 14.0774 4.1828 14.0873V1.91166Z"/></svg></button><button class="sol-exp-rail-icon" title="${t("panel.explorer")}" onclick="window.__solExpRailOpen('explorer')"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h5l1.5 1.5h6a1 1 0 0 1 1 1V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></button><button class="sol-exp-rail-icon" title="${t("file.search")}" onclick="window.__solExpRailOpen('search')"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M9.8 9.8L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button><button class="sol-exp-rail-icon" title="${t("panel.scm")}" onclick="window.__solExpRailOpen('scm')"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" clipRule="evenodd" d="M6 5C6 4.44772 6.44772 4 7 4C7.55228 4 8 4.44772 8 5C8 5.55228 7.55228 6 7 6C6.44772 6 6 5.55228 6 5ZM8 7.82929C9.16519 7.41746 10 6.30622 10 5C10 3.34315 8.65685 2 7 2C5.34315 2 4 3.34315 4 5C4 6.30622 4.83481 7.41746 6 7.82929V16.1707C4.83481 16.5825 4 17.6938 4 19C4 20.6569 5.34315 22 7 22C8.65685 22 10 20.6569 10 19C10 17.7334 9.21506 16.6501 8.10508 16.2101C8.45179 14.9365 9.61653 14 11 14H13C16.3137 14 19 11.3137 19 8V7.82929C20.1652 7.41746 21 6.30622 21 5C21 3.34315 19.6569 2 18 2C16.3431 2 15 3.34315 15 5C15 6.30622 15.8348 7.41746 17 7.82929V8C17 10.2091 15.2091 12 13 12H11C9.87439 12 8.83566 12.3719 8 12.9996V7.82929ZM18 6C18.5523 6 19 5.55228 19 5C19 4.44772 18.5523 4 18 4C17.4477 4 17 4.44772 17 5C17 5.55228 17.4477 6 18 6ZM6 19C6 18.4477 6.44772 18 7 18C7.55228 18 8 18.4477 8 19C8 19.5523 7.55228 20 7 20C6.44772 20 6 19.5523 6 19Z" fill="currentColor"/></svg>${gitChangesCount > 0 ? `<span class="sol-exp-activity-badge">${gitChangesCount}</span>` : ""}</button><button class="sol-exp-rail-icon sol-exp-terminal-toggle${terminalOpen ? " active" : ""}" title="${document.documentElement.lang?.startsWith("zh") ? "终端" : "Terminal"}" onclick="window.__solExpToggleTerminal()"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M4.5 5.5l2.5 2.5-2.5 2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 10.5h2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button></div>`;
+						activeEl.innerHTML = `<div class="sol-exp-panel sol-exp-panel-rail"><button class="sol-exp-rail-btn" title="${document.documentElement.lang?.startsWith("zh") ? "展开面板" : "Expand panel"}" onclick="window.__solExpTogglePanel()"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" clipRule="evenodd" d="M9.67272 0.522841C10.8339 0.522841 11.76 0.522714 12.4963 0.602493C13.2453 0.683657 13.8789 0.854248 14.4264 1.25197C14.7504 1.48739 15.0355 1.77247 15.2709 2.0965C15.6686 2.64394 15.8392 3.27758 15.9204 4.02655C16.0002 4.7629 16 5.68895 16 6.85014V9.14986C16 10.3111 16.0002 11.2371 15.9204 11.9735C15.8392 12.7224 15.6686 13.3561 15.2709 13.9035C15.0355 14.2275 14.7504 14.5126 14.4264 14.748C13.8789 15.1458 13.2453 15.3163 12.4963 15.3975C11.76 15.4773 10.8339 15.4772 9.67272 15.4772H6.3273C5.16611 15.4772 4.24006 15.4773 3.50371 15.3975C2.75474 15.3163 2.1211 15.1458 1.57366 14.748C1.24963 14.5126 0.964549 14.2275 0.729131 13.9035C0.331407 13.3561 0.160817 12.7224 0.0796529 11.9735C-0.000126137 11.2371 1.25338e-09 10.3111 1.25338e-09 9.14986V6.85014C1.25329e-09 5.68895 -0.000126137 4.7629 0.0796529 4.02655C0.160817 3.27758 0.331407 2.64394 0.729131 2.0965C0.964549 1.77247 1.24963 1.48739 1.57366 1.25197C2.1211 0.854248 2.75474 0.683657 3.50371 0.602493C4.24006 0.522714 5.16611 0.522841 6.3273 0.522841H9.67272ZM5.54303 1.88715V14.1118C5.78636 14.1128 6.04709 14.1169 6.3273 14.1169H9.67272C10.8639 14.1169 11.7032 14.1164 12.3493 14.0465C12.9824 13.9779 13.3497 13.8494 13.6268 13.6482C13.8354 13.4966 14.0195 13.3125 14.1711 13.1039C14.3723 12.8268 14.5007 12.4595 14.5693 11.8264C14.6393 11.1803 14.6398 10.341 14.6398 9.14986V6.85014C14.6398 5.65896 14.6393 4.81967 14.5693 4.1736C14.5007 3.54048 14.3723 3.17318 14.1711 2.89609C14.0195 2.68747 13.8354 2.50337 13.6268 2.35179C13.3497 2.1506 12.9824 2.02212 12.3493 1.95353C11.7032 1.88358 10.8639 1.88307 9.67272 1.88307H6.3273C6.04709 1.88307 5.78636 1.8862 5.54303 1.88715ZM4.1828 1.91166C3.99125 1.9216 3.8148 1.93577 3.65076 1.95353C3.01764 2.02212 2.65034 2.1506 2.37325 2.35179C2.16463 2.50337 1.98052 2.68747 1.82895 2.89609C1.62776 3.17318 1.49928 3.54048 1.43069 4.1736C1.36074 4.81967 1.36023 5.65896 1.36023 6.85014V9.14986C1.36023 10.341 1.36074 11.1803 1.43069 11.8264C1.49928 12.4595 1.62776 12.8268 1.82895 13.1039C1.98052 13.3125 2.16463 13.4966 2.37325 13.6482C2.65034 13.8494 3.01764 13.9779 3.65076 14.0465C3.81478 14.0642 3.99127 14.0774 4.1828 14.0873V1.91166Z"/></svg></button><button class="sol-exp-rail-icon" title="${t("panel.explorer")}" onclick="window.__solExpRailOpen('explorer')"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h5l1.5 1.5h6a1 1 0 0 1 1 1V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></button><button class="sol-exp-rail-icon" title="${t("file.search")}" onclick="window.__solExpRailOpen('search')"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M9.8 9.8L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button><button class="sol-exp-rail-icon" title="${t("panel.scm")}" onclick="window.__solExpRailOpen('scm')"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" clipRule="evenodd" d="M6 5C6 4.44772 6.44772 4 7 4C7.55228 4 8 4.44772 8 5C8 5.55228 7.55228 6 7 6C6.44772 6 6 5.55228 6 5ZM8 7.82929C9.16519 7.41746 10 6.30622 10 5C10 3.34315 8.65685 2 7 2C5.34315 2 4 3.34315 4 5C4 6.30622 4.83481 7.41746 6 7.82929V16.1707C4.83481 16.5825 4 17.6938 4 19C4 20.6569 5.34315 22 7 22C8.65685 22 10 20.6569 10 19C10 17.7334 9.21506 16.6501 8.10508 16.2101C8.45179 14.9365 9.61653 14 11 14H13C16.3137 14 19 11.3137 19 8V7.82929C20.1652 7.41746 21 6.30622 21 5C21 3.34315 19.6569 2 18 2C16.3431 2 15 3.34315 15 5C15 6.30622 15.8348 7.41746 17 7.82929V8C17 10.2091 15.2091 12 13 12H11C9.87439 12 8.83566 12.3719 8 12.9996V7.82929ZM18 6C18.5523 6 19 5.55228 19 5C19 4.44772 18.5523 4 18 4C17.4477 4 17 4.44772 17 5C17 5.55228 17.4477 6 18 6ZM6 19C6 18.4477 6.44772 18 7 18C7.55228 18 8 18.4477 8 19C8 19.5523 7.55228 20 7 20C6.44772 20 6 19.5523 6 19Z" fill="currentColor"/></svg>${state.scm.gitChangesCount > 0 ? `<span class="sol-exp-activity-badge">${state.scm.gitChangesCount}</span>` : ""}</button><button class="sol-exp-rail-icon sol-exp-terminal-toggle${terminalOpen ? " active" : ""}" title="${document.documentElement.lang?.startsWith("zh") ? "终端" : "Terminal"}" onclick="window.__solExpToggleTerminal()"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M4.5 5.5l2.5 2.5-2.5 2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 10.5h2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button></div>`;
 
 						return;
 
@@ -162,19 +127,19 @@ let commitTipHideTimer: any = 0;
 					try {
 						const result = await (await fetch(`/solution-explorer/git-repos?root=${encodeURIComponent(root)}`)).json();
 						if (result.ok && Array.isArray(result.value)) {
-							repos = result.value;
-							if (!activeRepo || !repos.some((r) => r.path === activeRepo)) {
-								activeRepo = repos[0]?.path || root;
+							state.scm.repos = result.value;
+							if (!state.scm.activeRepo || !state.scm.repos.some((r) => r.path === state.scm.activeRepo)) {
+								state.scm.activeRepo = state.scm.repos[0]?.path || root;
 							}
 							render();
 						}
 					} catch (err) { console.error("Failed to load repos:", err); }
 				}
 				window.__solExpSelectRepo = (path) => {
-					if (!path || path === activeRepo) return;
-					activeRepo = path;
-					commitDetailCache.clear();
-					remotesResolved = false;
+					if (!path || path === state.scm.activeRepo) return;
+					state.scm.activeRepo = path;
+					state.commits.commitDetailCache.clear();
+					state.commits.remotesResolved = false;
 					loadGitStatus();
 					loadRecentCommits();
 					// Update the repository selection highlight and the change
@@ -191,7 +156,7 @@ async function loadGitStatus() {
 
 					if (!root) return;
 
-					const hadStatus = !!gitStatus;
+					const hadStatus = !!state.scm.gitStatus;
 
 					try {
 
@@ -199,37 +164,37 @@ async function loadGitStatus() {
 
 						if (result.ok) {
 
-							const prev = gitStatus;
+							const prev = state.scm.gitStatus;
 
-							gitStatus = result.value;
+							state.scm.gitStatus = result.value;
 
-							gitChangesCount = (result.value.staged?.length || 0) + (result.value.unstaged?.length || 0) + (result.value.untracked?.length || 0);
+							state.scm.gitChangesCount = (result.value.staged?.length || 0) + (result.value.unstaged?.length || 0) + (result.value.untracked?.length || 0);
 
 							// Remember whether the UI-relevant status changed. Only
 							// the branch and the change lists drive the SCM view;
 							// ignored/ahead/behind may jitter between polls and
 							// must not force a rebuild (which would interrupt a
 							// divider drag).
-							gitStatusChanged = prev === null
+							state.scm.gitStatusChanged = prev === null
 								|| JSON.stringify([prev.branch, prev.staged, prev.unstaged, prev.untracked, prev.conflicts])
-								!== JSON.stringify([gitStatus.branch, gitStatus.staged, gitStatus.unstaged, gitStatus.untracked, gitStatus.conflicts]);
+								!== JSON.stringify([state.scm.gitStatus.branch, state.scm.gitStatus.staged, state.scm.gitStatus.unstaged, state.scm.gitStatus.untracked, state.scm.gitStatus.conflicts]);
 
 							// Detect a HEAD change (external commit or checkout) and reload the commit
 							// history so a command-line git commit shows up without a manual refresh.
-							const head = typeof gitStatus.head === "string" ? gitStatus.head : "";
-							if (head && head !== lastHeadHash) {
-								lastHeadHash = head;
+							const head = typeof state.scm.gitStatus.head === "string" ? state.scm.gitStatus.head : "";
+							if (head && head !== state.scm.lastHeadHash) {
+								state.scm.lastHeadHash = head;
 								if (hadStatus && currentTab === "scm") loadRecentCommits();
 							}
 
 							// Update the sync counter (↑ahead ↓behind) in place when
 							// it changed — e.g. after a command-line git commit —
 							// without rebuilding the repository section.
-							if (hadStatus && activeEl && (prev?.ahead !== gitStatus.ahead || prev?.behind !== gitStatus.behind)) {
+							if (hadStatus && activeEl && (prev?.ahead !== state.scm.gitStatus.ahead || prev?.behind !== state.scm.gitStatus.behind)) {
 								const repoCount = activeEl.querySelector('.sol-exp-scm-section[data-section="repository"] .sol-exp-scm-section-count');
 								if (repoCount) {
-									const a = gitStatus.ahead || 0;
-									const b = gitStatus.behind || 0;
+									const a = state.scm.gitStatus.ahead || 0;
+									const b = state.scm.gitStatus.behind || 0;
 									repoCount.textContent = (a > 0 || b > 0) ? `↑${a} ↓${b}` : "";
 								}
 							}
@@ -242,7 +207,7 @@ async function loadGitStatus() {
 					// the SCM region and the badge, leaving the tree alone.
 					if (!hadStatus) render();
 
-					else if (gitStatusChanged && activeEl) {
+					else if (state.scm.gitStatusChanged && activeEl) {
 
 						const scmHost = activeEl.querySelector("[data-sol-exp-scm-host]");
 
@@ -274,7 +239,7 @@ async function loadGitStatus() {
 
 						if (badge) {
 
-							if (gitChangesCount > 0) badge.textContent = String(gitChangesCount);
+							if (state.scm.gitChangesCount > 0) badge.textContent = String(state.scm.gitChangesCount);
 
 							else badge.remove();
 
@@ -282,40 +247,40 @@ async function loadGitStatus() {
 
 					}
 
-					if (!hadStatus && gitStatus && gitStatus.branch !== "unknown") loadRecentCommits();
+					if (!hadStatus && state.scm.gitStatus && state.scm.gitStatus.branch !== "unknown") loadRecentCommits();
 
 				}
 
 const GRAPH_COLORS = ["#e2b714", "#4ec9b0", "#58a6ff", "#d2a8ff", "#ff7b72", "#79c0ff", "#7ee787", "#ffa657"];
 function resetGraph() {
-  graphLanes = [];
-  graphPrevLanes = [];
-  graphDetailOpen = "";
-  graphColorInUse = new Set();
+  state.commits.graphLanes = [];
+  state.commits.graphPrevLanes = [];
+  state.commits.graphDetailOpen = "";
+  state.commits.graphColorInUse = new Set();
 }
 
 function allocGraphColor() {
   for (let c = 0; c < GRAPH_COLORS.length; c++) {
-    if (!graphColorInUse.has(c)) { graphColorInUse.add(c); return c; }
+    if (!state.commits.graphColorInUse.has(c)) { state.commits.graphColorInUse.add(c); return c; }
   }
   // More active lanes than colors: wrap (rare; >8 simultaneous branches).
-  return graphColorInUse.size % GRAPH_COLORS.length;
+  return state.commits.graphColorInUse.size % GRAPH_COLORS.length;
 }
 
 function freeGraphColor(c) {
-  graphColorInUse.delete(c);
+  state.commits.graphColorInUse.delete(c);
 }
 
 /** One graph row: vertical lanes + node + merge/branch transition lines (lane algorithm). */
 function renderGraphRow(commit) {
   const laneW = 14, rowH = 20, nodeR = 3;
   const parents = commit.parents || [];
-  let idx = graphLanes.findIndex((l) => l.hash === commit.hash);
-  if (idx === -1) { idx = graphLanes.length; graphLanes.push({ hash: commit.hash, color: allocGraphColor() }); }
-  const nodeColor = graphLanes[idx].color;
+  let idx = state.commits.graphLanes.findIndex((l) => l.hash === commit.hash);
+  if (idx === -1) { idx = state.commits.graphLanes.length; state.commits.graphLanes.push({ hash: commit.hash, color: allocGraphColor() }); }
+  const nodeColor = state.commits.graphLanes[idx].color;
 
   // Build the next row's lanes now so merge fork lines can be drawn into them.
-  const nextLanes = graphLanes.slice();
+  const nextLanes = state.commits.graphLanes.slice();
   nextLanes.splice(idx, 1);
   if (parents[0]) nextLanes.splice(idx, 0, { hash: parents[0], color: nodeColor });
   else freeGraphColor(nodeColor);
@@ -329,8 +294,8 @@ function renderGraphRow(commit) {
   let svg = `<svg class="sol-exp-graph-svg" width="${width}" height="${rowH}">`;
 
   // Lane transitions from the previous row (smooth S-curves).
-  graphPrevLanes.forEach((pl, pi) => {
-    const ci = graphLanes.findIndex((l) => l.hash === pl.hash);
+  state.commits.graphPrevLanes.forEach((pl, pi) => {
+    const ci = state.commits.graphLanes.findIndex((l) => l.hash === pl.hash);
     if (ci !== -1 && ci !== pi) {
       const x1 = pi * laneW + laneW / 2, x2 = ci * laneW + laneW / 2;
       svg += `<path d="M ${x1} 0 C ${x1} ${rowH / 2}, ${x2} ${rowH / 2}, ${x2} ${rowH}" fill="none" stroke="${GRAPH_COLORS[pl.color % GRAPH_COLORS.length]}" stroke-width="2" opacity="0.7"/>`;
@@ -338,7 +303,7 @@ function renderGraphRow(commit) {
   });
 
   // Vertical lanes + this commit's node.
-  graphLanes.forEach((lane, i) => {
+  state.commits.graphLanes.forEach((lane, i) => {
     const x = i * laneW + laneW / 2;
     const color = GRAPH_COLORS[lane.color % GRAPH_COLORS.length];
     if (i === idx) {
@@ -358,18 +323,18 @@ function renderGraphRow(commit) {
   });
 
   svg += `</svg>`;
-  graphPrevLanes = graphLanes.slice();
-  graphLanes = nextLanes;
-  for (const f of forks) graphLanes.push({ hash: f.hash, color: f.color });
+  state.commits.graphPrevLanes = state.commits.graphLanes.slice();
+  state.commits.graphLanes = nextLanes;
+  for (const f of forks) state.commits.graphLanes.push({ hash: f.hash, color: f.color });
   return svg;
 }
 // ── Commit detail cache (shared by inline expansion & tooltip) ──────────
 
 async function getCommitDetail(hash) {
-  if (commitDetailCache.has(hash)) return commitDetailCache.get(hash);
+  if (state.commits.commitDetailCache.has(hash)) return state.commits.commitDetailCache.get(hash);
   const result = await (await fetch(`/solution-explorer/git-commit-detail?root=${encodeURIComponent(gitRoot())}&hash=${encodeURIComponent(hash)}`)).json();
   if (!result.ok || !result.value) throw new Error(result.error?.message || "加载失败");
-  commitDetailCache.set(hash, result.value);
+  state.commits.commitDetailCache.set(hash, result.value);
   return result.value;
 }
 
@@ -407,7 +372,7 @@ function ensureCommitDetailInline(hash, c) {
 }
 
 async function reapplyCommitDetailInline() {
-  const hash = graphDetailOpen;
+  const hash = state.commits.graphDetailOpen;
   if (!hash) return;
   const list = document.getElementById("sol-exp-commits-list");
   if (!list || !list.querySelector(`.sol-exp-commit-item[data-hash="${hash}"]`)) return;
@@ -415,12 +380,12 @@ async function reapplyCommitDetailInline() {
   // from __solExpCommitDetail may populate the cache between the
   // ensureCommitDetailInline call and the has() check below, which
   // would leave the loading placeholder stuck forever.
-  const cached = commitDetailCache.get(hash);
+  const cached = state.commits.commitDetailCache.get(hash);
   ensureCommitDetailInline(hash, cached || null);
   if (!cached) {
     try {
       const c = await getCommitDetail(hash);
-      if (graphDetailOpen === hash) ensureCommitDetailInline(hash, c);
+      if (state.commits.graphDetailOpen === hash) ensureCommitDetailInline(hash, c);
     } catch { /* row already shows loading placeholder */ }
   }
 }
@@ -428,16 +393,16 @@ async function reapplyCommitDetailInline() {
 window.__solExpCommitDetail = async (hash) => {
   hideCommitTooltip();
   if (!hash) return;
-  graphDetailOpen = graphDetailOpen === hash ? "" : hash;
+  state.commits.graphDetailOpen = state.commits.graphDetailOpen === hash ? "" : hash;
   const rows = document.querySelectorAll(".sol-exp-commit-item");
-  rows.forEach((r) => r.classList.toggle("selected", r.getAttribute("data-hash") === graphDetailOpen));
-  if (!graphDetailOpen) { ensureCommitDetailInline("", null); return; }
+  rows.forEach((r) => r.classList.toggle("selected", r.getAttribute("data-hash") === state.commits.graphDetailOpen));
+  if (!state.commits.graphDetailOpen) { ensureCommitDetailInline("", null); return; }
   ensureCommitDetailInline(hash, null);
   try {
     const c = await getCommitDetail(hash);
-    if (graphDetailOpen === hash) ensureCommitDetailInline(hash, c);
+    if (state.commits.graphDetailOpen === hash) ensureCommitDetailInline(hash, c);
   } catch (err) {
-    if (graphDetailOpen === hash) {
+    if (state.commits.graphDetailOpen === hash) {
       const list = document.getElementById("sol-exp-commits-list");
       const block = list?.querySelector(".sol-exp-commit-detail-inline");
       if (block) block.innerHTML = `<div style="color:var(--dsw-color-error,#f48771)">${escapeHtml(err instanceof Error ? err.message : String(err))}</div>`;
@@ -448,8 +413,8 @@ window.__solExpCommitDetail = async (hash) => {
 // ── Hover tooltip for commit rows ────────────────────────────────────────
 
 async function githubCommitUrl(hash) {
-  if (!remotesResolved && remotesList.length === 0) { await loadRemotes(); remotesResolved = true; }
-  const r = remotesList.find((x) => x.type === "fetch" && x.name === "origin") || remotesList.find((x) => x.type === "fetch");
+  if (!state.commits.remotesResolved && state.scm.remotesList.length === 0) { await loadRemotes(); state.commits.remotesResolved = true; }
+  const r = state.scm.remotesList.find((x) => x.type === "fetch" && x.name === "origin") || state.scm.remotesList.find((x) => x.type === "fetch");
   if (!r) return "";
   const url = r.url || "";
   // SSH: git@github.com(-something):user/repo.git
@@ -481,15 +446,15 @@ function commitTooltipHTML(c) {
 }
 
 function buildCommitTooltip() {
-  if (commitTipEl) return;
-  commitTipEl = document.createElement("div");
-  commitTipEl.className = "sol-exp-commit-tooltip";
-  commitTipEl.style.display = "none";
-  document.body.appendChild(commitTipEl);
+  if (state.commits.commitTipEl) return;
+  state.commits.commitTipEl = document.createElement("div");
+  state.commits.commitTipEl.className = "sol-exp-commit-tooltip";
+  state.commits.commitTipEl.style.display = "none";
+  document.body.appendChild(state.commits.commitTipEl);
 }
 
 function positionCommitTooltip(row) {
-  const el = commitTipEl;
+  const el = state.commits.commitTipEl;
   if (!el || !row) return;
   el.style.visibility = "hidden";
   el.style.display = "block";
@@ -520,40 +485,40 @@ function positionCommitTooltip(row) {
 }
 
 function hideCommitTooltip() {
-  if (commitTipShowTimer) { clearTimeout(commitTipShowTimer); commitTipShowTimer = 0; }
-  if (commitTipHideTimer) { clearTimeout(commitTipHideTimer); commitTipHideTimer = 0; }
-  commitTipHash = "";
-  commitTipPending = "";
-  if (commitTipEl) commitTipEl.style.display = "none";
+  if (state.commits.commitTipShowTimer) { clearTimeout(state.commits.commitTipShowTimer); state.commits.commitTipShowTimer = 0; }
+  if (state.commits.commitTipHideTimer) { clearTimeout(state.commits.commitTipHideTimer); state.commits.commitTipHideTimer = 0; }
+  state.commits.commitTipHash = "";
+  state.commits.commitTipPending = "";
+  if (state.commits.commitTipEl) state.commits.commitTipEl.style.display = "none";
 }
 
 function scheduleHideCommitTooltip() {
-  if (commitTipHideTimer) clearTimeout(commitTipHideTimer);
-  commitTipHideTimer = setTimeout(hideCommitTooltip, 200);
+  if (state.commits.commitTipHideTimer) clearTimeout(state.commits.commitTipHideTimer);
+  state.commits.commitTipHideTimer = setTimeout(hideCommitTooltip, 200);
 }
 
 function cancelHideCommitTooltip() {
-  if (commitTipHideTimer) { clearTimeout(commitTipHideTimer); commitTipHideTimer = 0; }
+  if (state.commits.commitTipHideTimer) { clearTimeout(state.commits.commitTipHideTimer); state.commits.commitTipHideTimer = 0; }
 }
 
 async function showCommitTooltip(row, hash) {
-  commitTipHash = hash;
+  state.commits.commitTipHash = hash;
   buildCommitTooltip();
   try {
     const c = await getCommitDetail(hash);
-    if (commitTipHash !== hash) return;
-    commitTipEl!.innerHTML = commitTooltipHTML(c);
+    if (state.commits.commitTipHash !== hash) return;
+    state.commits.commitTipEl!.innerHTML = commitTooltipHTML(c);
     // Resolve the GitHub link promise to fill in the real URL.
     githubCommitUrl(hash).then((link) => {
-      if (commitTipHash !== hash || !commitTipEl) return;
-      const linkEl = commitTipEl.querySelector(".sol-exp-commit-tip-link");
+      if (state.commits.commitTipHash !== hash || !state.commits.commitTipEl) return;
+      const linkEl = state.commits.commitTipEl.querySelector(".sol-exp-commit-tip-link");
       if (linkEl && link) linkEl.setAttribute("href", link);
       else if (linkEl && !link) linkEl.remove();
     });
     positionCommitTooltip(row);
   } catch {
-    if (commitTipHash !== hash) return;
-    commitTipEl!.innerHTML = `<div style="color:var(--dsw-alias-label-secondary,#969696)">${t("loading")}</div>`;
+    if (state.commits.commitTipHash !== hash) return;
+    state.commits.commitTipEl!.innerHTML = `<div style="color:var(--dsw-alias-label-secondary,#969696)">${t("loading")}</div>`;
     positionCommitTooltip(row);
   }
 }
@@ -568,15 +533,15 @@ window.__solExpCommitCheckout = async (hash) => {
 };
 async function loadRemotes() {
   const result = await (await fetch(`/solution-explorer/git-remotes?root=${encodeURIComponent(gitRoot())}`)).json();
-  remotesList = result.ok && result.value ? result.value : [];
+  state.scm.remotesList = result.ok && result.value ? result.value : [];
 }
 async function loadBranches() {
   const result = await (await fetch(`/solution-explorer/git-branches?root=${encodeURIComponent(gitRoot())}`)).json();
-  branchesList = result.ok && result.value ? result.value : [];
+  state.scm.branchesList = result.ok && result.value ? result.value : [];
 }
 async function loadTags() {
   const result = await (await fetch(`/solution-explorer/git-tags?root=${encodeURIComponent(gitRoot())}`)).json();
-  tagsList = result.ok && result.value ? result.value : [];
+  state.scm.tagsList = result.ok && result.value ? result.value : [];
 }
 window.__solExpGitInit = async () => {
   if (!(await showConfirm({ title: t("scm.init.button"), message: t("scm.init.confirm"), okText: t("scm.init.button") }))) return;
@@ -623,14 +588,14 @@ window.__solExpSync = async () => {
     showToast(out ? t("scm.sync.sync") + ":\n" + out : t("scm.sync.done"));
   }
 };
-window.__solExpRemotePanel = async () => { remotePanelOpen = !remotePanelOpen; if (remotePanelOpen) await loadRemotes(); render(); };
-window.__solExpRemoteName = (v) => { remoteName = v; };
-window.__solExpRemoteUrl = (v) => { remoteUrl = v; };
+window.__solExpRemotePanel = async () => { state.scm.remotePanelOpen = !state.scm.remotePanelOpen; if (state.scm.remotePanelOpen) await loadRemotes(); render(); };
+window.__solExpRemoteName = (v) => { state.scm.remoteName = v; };
+window.__solExpRemoteUrl = (v) => { state.scm.remoteUrl = v; };
 window.__solExpRemoteAdd = async () => {
-  if (!remoteName.trim() || !remoteUrl.trim()) return;
-  const result = await (await fetch("/solution-explorer/git-remote-add", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name: remoteName.trim(), url: remoteUrl.trim() }) })).json();
+  if (!state.scm.remoteName.trim() || !state.scm.remoteUrl.trim()) return;
+  const result = await (await fetch("/solution-explorer/git-remote-add", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name: state.scm.remoteName.trim(), url: state.scm.remoteUrl.trim() }) })).json();
   if (!result.ok) alert(result.error?.message || "添加远程失败");
-  else { remoteName = ""; remoteUrl = ""; await loadRemotes(); render(); }
+  else { state.scm.remoteName = ""; state.scm.remoteUrl = ""; await loadRemotes(); render(); }
 };
 window.__solExpRemoteRemove = async (name) => {
   if (!(await showConfirm({ title: t("scm.remote.title"), message: t("scm.remote.removeConfirm").replace("{name}", name), okText: t("scm.remote.remove"), danger: true }))) return;
@@ -643,16 +608,16 @@ window.__solExpRemoteSetUrl = async (name) => {
   const result = await (await fetch("/solution-explorer/git-remote-set-url", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name, url: url.trim() }) })).json();
   if (!result.ok) alert(result.error?.message || "修改地址失败"); else await loadRemotes();
 };
-window.__solExpBranchPanel = async () => { branchPanelOpen = !branchPanelOpen; if (branchPanelOpen) { await loadBranches(); await loadTags(); } render(); };
-window.__solExpBranchName = (v) => { branchName = v; };
-window.__solExpBranchFrom = (v) => { branchFrom = v; };
+window.__solExpBranchPanel = async () => { state.scm.branchPanelOpen = !state.scm.branchPanelOpen; if (state.scm.branchPanelOpen) { await loadBranches(); await loadTags(); } render(); };
+window.__solExpBranchName = (v) => { state.scm.branchName = v; };
+window.__solExpBranchFrom = (v) => { state.scm.branchFrom = v; };
 window.__solExpBranchCreate = async () => {
-  if (!branchName.trim()) return;
-  const body: { root: string; name: string; from?: string } = { root: gitRoot(), name: branchName.trim() };
-  if (branchFrom.trim()) body.from = branchFrom.trim();
+  if (!state.scm.branchName.trim()) return;
+  const body: { root: string; name: string; from?: string } = { root: gitRoot(), name: state.scm.branchName.trim() };
+  if (state.scm.branchFrom.trim()) body.from = state.scm.branchFrom.trim();
   const result = await (await fetch("/solution-explorer/git-branch-create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
   if (!result.ok) alert(result.error?.message || "创建分支失败");
-  else { branchName = ""; branchFrom = ""; await loadBranches(); render(); }
+  else { state.scm.branchName = ""; state.scm.branchFrom = ""; await loadBranches(); render(); }
 };
 window.__solExpBranchCheckout = async (name, isRemote) => {
   const result = await (await fetch("/solution-explorer/git-branch-checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name, track: isRemote === true }) })).json();
@@ -696,70 +661,70 @@ window.__solExpBranchPublish = async (name) => {
   if (!result.ok) alert(result.error?.message || "发布失败"); else await loadBranches();
 };
 function commitsListHTML() {
-					if (commitsHTML === null) return "Loading...";
-					if (commitsHTML === "") return t("scm.log.empty");
-					return commitsHTML;
+					if (state.commits.commitsHTML === null) return "Loading...";
+					if (state.commits.commitsHTML === "") return t("scm.log.empty");
+					return state.commits.commitsHTML;
 				}
 				async function loadRecentCommits() {
 					console.log("[sol-exp] loadRecentCommits", Date.now());
-					if (!root || !gitStatus || gitStatus.branch === "unknown") return;
+					if (!root || !state.scm.gitStatus || state.scm.gitStatus.branch === "unknown") return;
 					// Bump the generation so a git-log fetch still in flight for
 					// the previous repo/branch is discarded when it lands.
-					commitsSeq++;
-					commitsPage = 0;
-					commitsAllLoaded = false;
+					state.commits.commitsSeq++;
+					state.commits.commitsPage = 0;
+					state.commits.commitsAllLoaded = false;
 					// Drop the cached list: the reload shows the loading
 					// placeholder until fresh commits arrive. render() reads from
 					// commitsHTML, so a late render can never wipe a filled list
 					// back to "Loading…".
-					commitsHTML = null;
+					state.commits.commitsHTML = null;
 					// Release the in-flight guard — the fetch it protects is stale
 					// now and its response will be thrown away by the seq check.
-					commitsLoading = false;
+					state.commits.commitsLoading = false;
 					resetGraph();
 					const listEl = document.getElementById("sol-exp-commits-list");
 					if (listEl) listEl.innerHTML = commitsListHTML();
 					await loadCommitsPage();
 				}
 				async function loadCommitsPage() {
-					if (!root || commitsLoading || commitsAllLoaded) return;
-					const seq = commitsSeq;
-					commitsLoading = true;
+					if (!root || state.commits.commitsLoading || state.commits.commitsAllLoaded) return;
+					const seq = state.commits.commitsSeq;
+					state.commits.commitsLoading = true;
 					try {
-						const url = `/solution-explorer/git-log?root=${encodeURIComponent(gitRoot())}&count=50&skip=${commitsPage * 50}`;
+						const url = `/solution-explorer/git-log?root=${encodeURIComponent(gitRoot())}&count=50&skip=${state.commits.commitsPage * 50}`;
 						const result = await (await fetch(url)).json();
 						// A newer load took over while this fetch was in flight
 						// (conversation/repo switch, refresh) — discard the stale
 						// response instead of writing it into the current list.
-						if (seq !== commitsSeq) return;
+						if (seq !== state.commits.commitsSeq) return;
 						console.log("[sol-exp] loadCommitsPage ok", result.ok, result.value ? result.value.length : -1, "el", !!document.getElementById("sol-exp-commits-list"));
 						if (result.ok && result.value) {
 							const commitsList = document.getElementById("sol-exp-commits-list");
 							if (commitsList) {
-								if (commitsPage === 0 && result.value.length === 0) {
+								if (state.commits.commitsPage === 0 && result.value.length === 0) {
 									commitsList.textContent = t("scm.log.empty");
-									commitsHTML = "";
-									commitsAllLoaded = true;
+									state.commits.commitsHTML = "";
+									state.commits.commitsAllLoaded = true;
 								} else {
 									const items = result.value.map((commit) => {
 										const graph = renderGraphRow(commit);
-										const selected = graphDetailOpen === commit.hash ? " selected" : "";
+										const selected = state.commits.graphDetailOpen === commit.hash ? " selected" : "";
 										return `<div class="sol-exp-commit-item${selected}" data-hash="${commit.hash}" onclick="window.__solExpCommitDetail('${commit.hash}')"><span class="sol-exp-graph">${graph}</span><span class="sol-exp-commit-hash">${commit.shortHash}</span><span class="sol-exp-commit-msg">${escapeHtml(commit.message.substring(0, 60))}${commit.message.length > 60 ? "..." : ""}</span><span class="sol-exp-commit-date">${relTime(commit.timestamp)}</span></div>`;
 									}).join("");
-									if (commitsPage === 0) commitsList.innerHTML = items;
+									if (state.commits.commitsPage === 0) commitsList.innerHTML = items;
 									else commitsList.insertAdjacentHTML("beforeend", items);
-									commitsHTML = commitsPage === 0 ? items : (commitsHTML || "") + items;
-									commitsPage++;
-									if (result.value.length < 50) commitsAllLoaded = true;
+									state.commits.commitsHTML = state.commits.commitsPage === 0 ? items : (state.commits.commitsHTML || "") + items;
+									state.commits.commitsPage++;
+									if (result.value.length < 50) state.commits.commitsAllLoaded = true;
 								}
 							}
 						}
 					} catch (err) {
-						if (seq === commitsSeq) console.error("Failed to load commits:", err);
+						if (seq === state.commits.commitsSeq) console.error("Failed to load commits:", err);
 					} finally {
 						// Only the current generation may release the in-flight
 						// guard; a stale fetch must not clear a newer one's flag.
-						if (seq === commitsSeq) commitsLoading = false;
+						if (seq === state.commits.commitsSeq) state.commits.commitsLoading = false;
 					}
 				}
 				window.__solExpCommitsScroll = (evt) => {
@@ -841,9 +806,9 @@ async function doStage(files) {
 
 				async function doCommit() {
 
-					if (!root || !commitMessage.trim()) return;
+					if (!root || !state.scm.commitMessage.trim()) return;
 
-					committing = true;
+					state.scm.committing = true;
 
 					render();
 
@@ -858,7 +823,7 @@ async function doStage(files) {
 							body: JSON.stringify({
 
 								root: gitRoot(),
-															message: commitMessage.trim()
+															message: state.scm.commitMessage.trim()
 
 							})
 
@@ -866,7 +831,7 @@ async function doStage(files) {
 
 						if (result.ok) {
 
-							commitMessage = "";
+							state.scm.commitMessage = "";
 
 							await loadGitStatus();
 
@@ -880,7 +845,7 @@ async function doStage(files) {
 
 					}
 
-					committing = false;
+					state.scm.committing = false;
 
 					render();
 
@@ -914,7 +879,7 @@ async function doStage(files) {
 
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" clipRule="evenodd" d="M6 5C6 4.44772 6.44772 4 7 4C7.55228 4 8 4.44772 8 5C8 5.55228 7.55228 6 7 6C6.44772 6 6 5.55228 6 5ZM8 7.82929C9.16519 7.41746 10 6.30622 10 5C10 3.34315 8.65685 2 7 2C5.34315 2 4 3.34315 4 5C4 6.30622 4.83481 7.41746 6 7.82929V16.1707C4.83481 16.5825 4 17.6938 4 19C4 20.6569 5.34315 22 7 22C8.65685 22 10 20.6569 10 19C10 17.7334 9.21506 16.6501 8.10508 16.2101C8.45179 14.9365 9.61653 14 11 14H13C16.3137 14 19 11.3137 19 8V7.82929C20.1652 7.41746 21 6.30622 21 5C21 3.34315 19.6569 2 18 2C16.3431 2 15 3.34315 15 5C15 6.30622 15.8348 7.41746 17 7.82929V8C17 10.2091 15.2091 12 13 12H11C9.87439 12 8.83566 12.3719 8 12.9996V7.82929ZM18 6C18.5523 6 19 5.55228 19 5C19 4.44772 18.5523 4 18 4C17.4477 4 17 4.44772 17 5C17 5.55228 17.4477 6 18 6ZM6 19C6 18.4477 6.44772 18 7 18C7.55228 18 8 18.4477 8 19C8 19.5523 7.55228 20 7 20C6.44772 20 6 19.5523 6 19Z" fill="currentColor"/></svg>
 
-            ${gitChangesCount > 0 ? `<span class="sol-exp-activity-badge">${gitChangesCount}</span>` : ""}
+            ${state.scm.gitChangesCount > 0 ? `<span class="sol-exp-activity-badge">${state.scm.gitChangesCount}</span>` : ""}
 
           </div>
 
@@ -968,7 +933,7 @@ async function doStage(files) {
 				// (and its scroll/loading state) untouched.
 				function buildSCMTopHTML() {
 
-					const status = gitStatus;
+					const status = state.scm.gitStatus;
 
 					const staged = status?.staged || [];
 
@@ -984,7 +949,7 @@ async function doStage(files) {
 
 					if (conflicts.length > 0) topHTML += `
 
-        <div class="sol-exp-scm-section${collapsedSections.has("conflicts") ? " collapsed" : ""}" data-section="conflicts">
+        <div class="sol-exp-scm-section${state.scm.collapsedSections.has("conflicts") ? " collapsed" : ""}" data-section="conflicts">
 
           <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('conflicts')"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" style="transform:rotate(90deg)"><path d="M4.25 2.82782L4.25 11.1722C4.25 11.6622 4.84243 11.9076 5.18891 11.5611L9.36109 7.38891C9.57588 7.17412 9.57588 6.82588 9.36109 6.61109L5.18891 2.43891C4.84243 2.09243 4.25 2.33782 4.25 2.82782Z"/></svg>${t("scm.merge.changes")}<span class="sol-exp-scm-header-actions"></span><span class="sol-exp-scm-section-count">${conflicts.length}</span></div>
 
@@ -998,11 +963,11 @@ async function doStage(files) {
 
         <div class="sol-exp-commit-box">
 
-          <textarea class="sol-exp-commit-input" placeholder="${t("scm.commit.placeholder")}${status?.branch && status?.branch !== "unknown" ? " (" + status.branch + ")" : ""}" oninput="window.__solExpCommitMsg(this.value)">${escapeHtml(commitMessage)}</textarea>
+          <textarea class="sol-exp-commit-input" placeholder="${t("scm.commit.placeholder")}${status?.branch && status?.branch !== "unknown" ? " (" + status.branch + ")" : ""}" oninput="window.__solExpCommitMsg(this.value)">${escapeHtml(state.scm.commitMessage)}</textarea>
 
           <div class="sol-exp-commit-row">
 
-            <button class="sol-exp-commit-btn" onclick="window.__solExpCommit()" ${committing || !commitMessage.trim() ? "disabled" : ""}>${committing ? t("scm.committing") : t("scm.commit.button")}</button>
+            <button class="sol-exp-commit-btn" onclick="window.__solExpCommit()" ${state.scm.committing || !state.scm.commitMessage.trim() ? "disabled" : ""}>${state.scm.committing ? t("scm.committing") : t("scm.commit.button")}</button>
 
           </div>
 
@@ -1012,7 +977,7 @@ async function doStage(files) {
 
 					topHTML += `
 
-        <div class="sol-exp-scm-section${collapsedSections.has("changes") ? " collapsed" : ""}" data-section="changes">
+        <div class="sol-exp-scm-section${state.scm.collapsedSections.has("changes") ? " collapsed" : ""}" data-section="changes">
 
           <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('changes')"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" style="transform:rotate(90deg)"><path d="M4.25 2.82782L4.25 11.1722C4.25 11.6622 4.84243 11.9076 5.18891 11.5611L9.36109 7.38891C9.57588 7.17412 9.57588 6.82588 9.36109 6.61109L5.18891 2.43891C4.84243 2.09243 4.25 2.33782 4.25 2.82782Z"/></svg>${t("scm.changes")}<span class="sol-exp-scm-header-actions">
 
@@ -1034,7 +999,7 @@ async function doStage(files) {
 
 					if (staged.length > 0) topHTML += `
 
-          <div class="sol-exp-scm-section${collapsedSections.has("staged") ? " collapsed" : ""}" data-section="staged">
+          <div class="sol-exp-scm-section${state.scm.collapsedSections.has("staged") ? " collapsed" : ""}" data-section="staged">
 
             <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('staged')"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" style="transform:rotate(90deg)"><path d="M4.25 2.82782L4.25 11.1722C4.25 11.6622 4.84243 11.9076 5.18891 11.5611L9.36109 7.38891C9.57588 7.17412 9.57588 6.82588 9.36109 6.61109L5.18891 2.43891C4.84243 2.09243 4.25 2.33782 4.25 2.82782Z"/></svg>${t("scm.staged")}<span class="sol-exp-scm-header-actions">
 
@@ -1056,7 +1021,7 @@ async function doStage(files) {
 
 					if (!root) return `<div class="sol-exp-content"><div class="sol-exp-empty">${t("panel.empty")}</div></div>`;
 
-					const status = gitStatus;
+					const status = state.scm.gitStatus;
 
 					const isRepo = status && status.branch !== "unknown";
 
@@ -1077,7 +1042,7 @@ async function doStage(files) {
 
 					if (conflicts.length > 0) topHTML += `
 
-        <div class="sol-exp-scm-section${collapsedSections.has("conflicts") ? " collapsed" : ""}" data-section="conflicts">
+        <div class="sol-exp-scm-section${state.scm.collapsedSections.has("conflicts") ? " collapsed" : ""}" data-section="conflicts">
 
           <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('conflicts')"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" style="transform:rotate(90deg)"><path d="M4.25 2.82782L4.25 11.1722C4.25 11.6622 4.84243 11.9076 5.18891 11.5611L9.36109 7.38891C9.57588 7.17412 9.57588 6.82588 9.36109 6.61109L5.18891 2.43891C4.84243 2.09243 4.25 2.33782 4.25 2.82782Z"/></svg>${t("scm.merge.changes")}<span class="sol-exp-scm-header-actions"></span><span class="sol-exp-scm-section-count">${conflicts.length}</span></div>
 
@@ -1091,11 +1056,11 @@ async function doStage(files) {
 
         <div class="sol-exp-commit-box">
 
-          <textarea class="sol-exp-commit-input" placeholder="${t("scm.commit.placeholder")}${status?.branch && status.branch !== "unknown" ? " (" + status.branch + ")" : ""}" oninput="window.__solExpCommitMsg(this.value)">${escapeHtml(commitMessage)}</textarea>
+          <textarea class="sol-exp-commit-input" placeholder="${t("scm.commit.placeholder")}${status?.branch && status.branch !== "unknown" ? " (" + status.branch + ")" : ""}" oninput="window.__solExpCommitMsg(this.value)">${escapeHtml(state.scm.commitMessage)}</textarea>
 
           <div class="sol-exp-commit-row">
 
-            <button class="sol-exp-commit-btn" onclick="window.__solExpCommit()" ${committing || !commitMessage.trim() ? "disabled" : ""}>${committing ? t("scm.committing") : t("scm.commit.button")}</button>
+            <button class="sol-exp-commit-btn" onclick="window.__solExpCommit()" ${state.scm.committing || !state.scm.commitMessage.trim() ? "disabled" : ""}>${state.scm.committing ? t("scm.committing") : t("scm.commit.button")}</button>
 
           </div>
 
@@ -1107,7 +1072,7 @@ async function doStage(files) {
 
 					topHTML += `
 
-        <div class="sol-exp-scm-section${collapsedSections.has("changes") ? " collapsed" : ""}" data-section="changes">
+        <div class="sol-exp-scm-section${state.scm.collapsedSections.has("changes") ? " collapsed" : ""}" data-section="changes">
 
           <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('changes')"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" style="transform:rotate(90deg)"><path d="M4.25 2.82782L4.25 11.1722C4.25 11.6622 4.84243 11.9076 5.18891 11.5611L9.36109 7.38891C9.57588 7.17412 9.57588 6.82588 9.36109 6.61109L5.18891 2.43891C4.84243 2.09243 4.25 2.33782 4.25 2.82782Z"/></svg>${t("scm.changes")}<span class="sol-exp-scm-header-actions">
 
@@ -1129,7 +1094,7 @@ async function doStage(files) {
 
 					if (staged.length > 0) topHTML += `
 
-          <div class="sol-exp-scm-section${collapsedSections.has("staged") ? " collapsed" : ""}" data-section="staged">
+          <div class="sol-exp-scm-section${state.scm.collapsedSections.has("staged") ? " collapsed" : ""}" data-section="staged">
 
             <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('staged')"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" style="transform:rotate(90deg)"><path d="M4.25 2.82782L4.25 11.1722C4.25 11.6622 4.84243 11.9076 5.18891 11.5611L9.36109 7.38891C9.57588 7.17412 9.57588 6.82588 9.36109 6.61109L5.18891 2.43891C4.84243 2.09243 4.25 2.33782 4.25 2.82782Z"/></svg>${t("scm.staged")}<span class="sol-exp-scm-header-actions">
 
@@ -1145,7 +1110,7 @@ async function doStage(files) {
 
 					bottomHTML += `
 
-        <div class="sol-exp-scm-section${collapsedSections.has("repository") ? " collapsed" : ""}" data-section="repository">
+        <div class="sol-exp-scm-section${state.scm.collapsedSections.has("repository") ? " collapsed" : ""}" data-section="repository">
 
           <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('repository')"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" style="transform:rotate(90deg)"><path d="M4.25 2.82782L4.25 11.1722C4.25 11.6622 4.84243 11.9076 5.18891 11.5611L9.36109 7.38891C9.57588 7.17412 9.57588 6.82588 9.36109 6.61109L5.18891 2.43891C4.84243 2.09243 4.25 2.33782 4.25 2.82782Z"/></svg>${t("scm.repository")}<span class="sol-exp-scm-header-actions">
             <button class="sol-exp-hdr-btn" title="${t("scm.sync.fetch")}" onclick="event.stopPropagation();window.__solExpFetch()"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v10M4 8l4 4 4-4"/></svg></button>
@@ -1156,17 +1121,17 @@ async function doStage(files) {
 
           <div style="padding:4px 12px 8px 24px;display:flex;flex-direction:column">
 
-            ${repos.map((r) => `<div class="sol-exp-repo-item ${activeRepo === r.path ? "active" : ""}" data-repo-path="${r.path.replace(/"/g, "&quot;")}" onclick="window.__solExpSelectRepo('${r.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')"><span class="sol-exp-repo-icon">⑂</span><span class="sol-exp-repo-name">${r.name}</span><span class="sol-exp-repo-branch">${r.branch}</span><span class="sol-exp-hdr-btn" title="${t("scm.remote.title")}" onclick="event.stopPropagation();window.__solExpRemotePanel()"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M6.5 9.5a3 3 0 0 0 4.24 0l2-2a3 3 0 0 0-4.24-4.24l-1 1"/><path d="M9.5 6.5a3 3 0 0 0-4.24 0l-2 2a3 3 0 0 0 4.24 4.24l1-1"/></svg></button></span><span class="sol-exp-hdr-btn" title="${t("scm.branch.title")}" onclick="event.stopPropagation();window.__solExpBranchPanel()"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="3.5" r="1.5"/><circle cx="5" cy="12.5" r="1.5"/><circle cx="11.5" cy="7" r="1.5"/><path d="M5 5v5.5M11.5 8.5c0 2.2-1.3 3-4.2 3"/></svg></button></span></div>`).join("")}<div style="font-size:12px;color:var(--dsw-alias-label-secondary);margin-bottom:6px">${t("scm.repository.branch")}</div><span class="sol-exp-branch-pill">⑂ ${status?.branch || ""}</span>
+            ${state.scm.repos.map((r) => `<div class="sol-exp-repo-item ${state.scm.activeRepo === r.path ? "active" : ""}" data-repo-path="${r.path.replace(/"/g, "&quot;")}" onclick="window.__solExpSelectRepo('${r.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')"><span class="sol-exp-repo-icon">⑂</span><span class="sol-exp-repo-name">${r.name}</span><span class="sol-exp-repo-branch">${r.branch}</span><span class="sol-exp-hdr-btn" title="${t("scm.remote.title")}" onclick="event.stopPropagation();window.__solExpRemotePanel()"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M6.5 9.5a3 3 0 0 0 4.24 0l2-2a3 3 0 0 0-4.24-4.24l-1 1"/><path d="M9.5 6.5a3 3 0 0 0-4.24 0l-2 2a3 3 0 0 0 4.24 4.24l1-1"/></svg></button></span><span class="sol-exp-hdr-btn" title="${t("scm.branch.title")}" onclick="event.stopPropagation();window.__solExpBranchPanel()"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="3.5" r="1.5"/><circle cx="5" cy="12.5" r="1.5"/><circle cx="11.5" cy="7" r="1.5"/><path d="M5 5v5.5M11.5 8.5c0 2.2-1.3 3-4.2 3"/></svg></button></span></div>`).join("")}<div style="font-size:12px;color:var(--dsw-alias-label-secondary);margin-bottom:6px">${t("scm.repository.branch")}</div><span class="sol-exp-branch-pill">⑂ ${status?.branch || ""}</span>
 
-            ${remotePanelOpen ? `<div style="margin:6px 0;padding:8px;border:1px solid var(--dsw-alias-border-l2,#333);border-radius:6px;font-size:12px"><div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><b>${t("scm.remote.title")}</b><span style="flex:1"></span><button class="sol-exp-commit-detail-close" onclick="window.__solExpRemotePanel()">✕</button></div>${remotesList.length === 0 ? `<div style="color:var(--dsw-alias-label-tertiary,#6e6e6e);padding:2px 0 6px">${t("scm.remote.none")}</div>` : remotesList.map((r) => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="flex:none;font-weight:600">${escapeHtml(r.name)}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary,#969696)">${escapeHtml(r.url)}</span><button class="sol-exp-commit-detail-btn" onclick="window.__solExpRemoteSetUrl('${r.name.replace(/'/g, "\\'")}')">${t("scm.remote.setUrl")}</button><button class="sol-exp-commit-detail-btn" onclick="window.__solExpRemoteRemove('${r.name.replace(/'/g, "\\'")}')">${t("scm.remote.remove")}</button></div>`).join("")}<div style="display:flex;gap:6px;margin-top:8px"><input class="sol-exp-commit-input" style="min-height:0;height:26px;flex:1" placeholder="${t("scm.remote.name")}" value="${escapeHtml(remoteName)}" oninput="window.__solExpRemoteName(this.value)"/><input class="sol-exp-commit-input" style="min-height:0;height:26px;flex:2" placeholder="${t("scm.remote.url")} (https://… 或 git@…)" value="${escapeHtml(remoteUrl)}" oninput="window.__solExpRemoteUrl(this.value)"/><button class="sol-exp-commit-detail-btn" onclick="window.__solExpRemoteAdd()">${t("scm.remote.addBtn")}</button></div></div>` : ""}
+            ${state.scm.remotePanelOpen ? `<div style="margin:6px 0;padding:8px;border:1px solid var(--dsw-alias-border-l2,#333);border-radius:6px;font-size:12px"><div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><b>${t("scm.remote.title")}</b><span style="flex:1"></span><button class="sol-exp-commit-detail-close" onclick="window.__solExpRemotePanel()">✕</button></div>${state.scm.remotesList.length === 0 ? `<div style="color:var(--dsw-alias-label-tertiary,#6e6e6e);padding:2px 0 6px">${t("scm.remote.none")}</div>` : state.scm.remotesList.map((r) => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="flex:none;font-weight:600">${escapeHtml(r.name)}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary,#969696)">${escapeHtml(r.url)}</span><button class="sol-exp-commit-detail-btn" onclick="window.__solExpRemoteSetUrl('${r.name.replace(/'/g, "\\'")}')">${t("scm.remote.setUrl")}</button><button class="sol-exp-commit-detail-btn" onclick="window.__solExpRemoteRemove('${r.name.replace(/'/g, "\\'")}')">${t("scm.remote.remove")}</button></div>`).join("")}<div style="display:flex;gap:6px;margin-top:8px"><input class="sol-exp-commit-input" style="min-height:0;height:26px;flex:1" placeholder="${t("scm.remote.name")}" value="${escapeHtml(state.scm.remoteName)}" oninput="window.__solExpRemoteName(this.value)"/><input class="sol-exp-commit-input" style="min-height:0;height:26px;flex:2" placeholder="${t("scm.remote.url")} (https://… 或 git@…)" value="${escapeHtml(state.scm.remoteUrl)}" oninput="window.__solExpRemoteUrl(this.value)"/><button class="sol-exp-commit-detail-btn" onclick="window.__solExpRemoteAdd()">${t("scm.remote.addBtn")}</button></div></div>` : ""}
 
-            ${branchPanelOpen ? `<div style="margin:6px 0;padding:8px;border:1px solid var(--dsw-alias-border-l2,#333);border-radius:6px;font-size:12px"><div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><b>${t("scm.branch.title")}</b><span style="flex:1"></span><button class="sol-exp-commit-detail-close" onclick="window.__solExpBranchPanel()">✕</button></div><div style="color:var(--dsw-alias-label-tertiary,#6e6e6e);margin:2px 0">${t("scm.branch.local")}</div>${branchesList.filter((b) => !b.isRemote).map((b) => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer" onclick="window.__solExpBranchCheckout('${b.name.replace(/'/g, "\\'")}')"><span style="flex:none;width:14px">${b.current ? "➤" : ""}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${b.current ? "font-weight:600;color:var(--dsw-alias-label-primary)" : ""}">${escapeHtml(b.name)}</span><span style="flex:none;font-size:10px;color:var(--dsw-alias-label-tertiary,#6e6e6e);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${b.shortHash ? b.shortHash + " " : ""}${escapeHtml((b.subject || "").substring(0, 24))}</span>${b.upstream ? `<span style="flex:none;font-size:10px;color:var(--dsw-alias-label-tertiary,#6e6e6e)">${escapeHtml(b.upstream)}</span>` : ""}<button class="sol-exp-commit-detail-btn" style="padding:1px 5px" title="${t("scm.branch.rename")}" onclick="event.stopPropagation();window.__solExpBranchRename('${b.name.replace(/'/g, "\\'")}')">✎</button>${!b.current ? `<button class="sol-exp-commit-detail-btn" style="padding:1px 5px" title="${t("scm.branch.merge")}" onclick="event.stopPropagation();window.__solExpBranchMerge('${b.name.replace(/'/g, "\\'")}')">⤵</button><button class="sol-exp-commit-detail-btn" style="padding:1px 5px" title="${t("scm.branch.publish")}" onclick="event.stopPropagation();window.__solExpBranchPublish('${b.name.replace(/'/g, "\\'")}')">↑</button><button class="sol-exp-commit-detail-btn" style="padding:1px 5px" title="${t("scm.branch.delete")}" onclick="event.stopPropagation();window.__solExpBranchDelete('${b.name.replace(/'/g, "\\'")}')">✕</button>` : ""}</div>`).join("")}<div style="color:var(--dsw-alias-label-tertiary,#6e6e6e);margin:4px 0 2px">${t("scm.branch.remote")}</div>${branchesList.filter((b) => b.isRemote).map((b) => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer" onclick="window.__solExpBranchCheckout('${b.name.replace(/'/g, "\\'")}', true)"><span style="flex:none;width:14px"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary,#969696)">${escapeHtml(b.name)}</span><span style="flex:none;font-size:10px;color:var(--dsw-alias-label-tertiary,#6e6e6e);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${b.shortHash ? b.shortHash + " " : ""}${escapeHtml((b.subject || "").substring(0, 24))}</span></div>`).join("")}${tagsList.length > 0 ? `<div style="color:var(--dsw-alias-label-tertiary,#6e6e6e);margin:4px 0 2px">${t("scm.branch.tags")}</div>${tagsList.map((tg) => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="flex:none;width:14px"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary,#969696)">${escapeHtml(tg.name)}</span><span style="flex:none;font-size:10px;color:var(--dsw-alias-label-tertiary,#6e6e6e);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${tg.commitHash ? escapeHtml((tg.subject || "").substring(0, 24)) : ""}</span></div>`).join("")}` : ""}<div style="display:flex;gap:6px;margin-top:8px"><input class="sol-exp-commit-input" style="min-height:0;height:26px;flex:1" placeholder="${t("scm.branch.name")}" value="${escapeHtml(branchName)}" oninput="window.__solExpBranchName(this.value)"/><input class="sol-exp-commit-input" style="min-height:0;height:26px;flex:1" placeholder="${t("scm.branch.from")}" value="${escapeHtml(branchFrom)}" oninput="window.__solExpBranchFrom(this.value)"/><button class="sol-exp-commit-detail-btn" onclick="window.__solExpBranchCreate()">${t("scm.branch.createBtn")}</button></div></div>` : ""}
+            ${state.scm.branchPanelOpen ? `<div style="margin:6px 0;padding:8px;border:1px solid var(--dsw-alias-border-l2,#333);border-radius:6px;font-size:12px"><div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><b>${t("scm.branch.title")}</b><span style="flex:1"></span><button class="sol-exp-commit-detail-close" onclick="window.__solExpBranchPanel()">✕</button></div><div style="color:var(--dsw-alias-label-tertiary,#6e6e6e);margin:2px 0">${t("scm.branch.local")}</div>${state.scm.branchesList.filter((b) => !b.isRemote).map((b) => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer" onclick="window.__solExpBranchCheckout('${b.name.replace(/'/g, "\\'")}')"><span style="flex:none;width:14px">${b.current ? "➤" : ""}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${b.current ? "font-weight:600;color:var(--dsw-alias-label-primary)" : ""}">${escapeHtml(b.name)}</span><span style="flex:none;font-size:10px;color:var(--dsw-alias-label-tertiary,#6e6e6e);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${b.shortHash ? b.shortHash + " " : ""}${escapeHtml((b.subject || "").substring(0, 24))}</span>${b.upstream ? `<span style="flex:none;font-size:10px;color:var(--dsw-alias-label-tertiary,#6e6e6e)">${escapeHtml(b.upstream)}</span>` : ""}<button class="sol-exp-commit-detail-btn" style="padding:1px 5px" title="${t("scm.branch.rename")}" onclick="event.stopPropagation();window.__solExpBranchRename('${b.name.replace(/'/g, "\\'")}')">✎</button>${!b.current ? `<button class="sol-exp-commit-detail-btn" style="padding:1px 5px" title="${t("scm.branch.merge")}" onclick="event.stopPropagation();window.__solExpBranchMerge('${b.name.replace(/'/g, "\\'")}')">⤵</button><button class="sol-exp-commit-detail-btn" style="padding:1px 5px" title="${t("scm.branch.publish")}" onclick="event.stopPropagation();window.__solExpBranchPublish('${b.name.replace(/'/g, "\\'")}')">↑</button><button class="sol-exp-commit-detail-btn" style="padding:1px 5px" title="${t("scm.branch.delete")}" onclick="event.stopPropagation();window.__solExpBranchDelete('${b.name.replace(/'/g, "\\'")}')">✕</button>` : ""}</div>`).join("")}<div style="color:var(--dsw-alias-label-tertiary,#6e6e6e);margin:4px 0 2px">${t("scm.branch.remote")}</div>${state.scm.branchesList.filter((b) => b.isRemote).map((b) => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer" onclick="window.__solExpBranchCheckout('${b.name.replace(/'/g, "\\'")}', true)"><span style="flex:none;width:14px"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary,#969696)">${escapeHtml(b.name)}</span><span style="flex:none;font-size:10px;color:var(--dsw-alias-label-tertiary,#6e6e6e);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${b.shortHash ? b.shortHash + " " : ""}${escapeHtml((b.subject || "").substring(0, 24))}</span></div>`).join("")}${state.scm.tagsList.length > 0 ? `<div style="color:var(--dsw-alias-label-tertiary,#6e6e6e);margin:4px 0 2px">${t("scm.branch.tags")}</div>${state.scm.tagsList.map((tg) => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="flex:none;width:14px"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary,#969696)">${escapeHtml(tg.name)}</span><span style="flex:none;font-size:10px;color:var(--dsw-alias-label-tertiary,#6e6e6e);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${tg.commitHash ? escapeHtml((tg.subject || "").substring(0, 24)) : ""}</span></div>`).join("")}` : ""}<div style="display:flex;gap:6px;margin-top:8px"><input class="sol-exp-commit-input" style="min-height:0;height:26px;flex:1" placeholder="${t("scm.branch.name")}" value="${escapeHtml(state.scm.branchName)}" oninput="window.__solExpBranchName(this.value)"/><input class="sol-exp-commit-input" style="min-height:0;height:26px;flex:1" placeholder="${t("scm.branch.from")}" value="${escapeHtml(state.scm.branchFrom)}" oninput="window.__solExpBranchFrom(this.value)"/><button class="sol-exp-commit-detail-btn" onclick="window.__solExpBranchCreate()">${t("scm.branch.createBtn")}</button></div></div>` : ""}
 
           </div>
 
         </div>
 
-        <div class="sol-exp-scm-section${collapsedSections.has("commits") ? " collapsed" : ""}" data-section="commits">
+        <div class="sol-exp-scm-section${state.scm.collapsedSections.has("commits") ? " collapsed" : ""}" data-section="commits">
 
           <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('commits')"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" style="transform:rotate(90deg)"><path d="M4.25 2.82782L4.25 11.1722C4.25 11.6622 4.84243 11.9076 5.18891 11.5611L9.36109 7.38891C9.57588 7.17412 9.57588 6.82588 9.36109 6.61109L5.18891 2.43891C4.84243 2.09243 4.25 2.33782 4.25 2.82782Z"/></svg>${t("scm.repository.commits")}<span class="sol-exp-scm-header-actions"></span><span class="sol-exp-scm-section-count"></span></div>
 
@@ -1180,7 +1145,7 @@ async function doStage(files) {
 
       `;
 
-					return `<div class="sol-exp-content"><div class="sol-exp-scm-split"><div class="sol-exp-scm-top" style="flex-basis:${scmSplit}%">${topHTML}</div><div class="sol-exp-scm-divider" onpointerdown="window.__solExpScmDividerDown(event)"></div><div class="sol-exp-scm-bottom" style="flex-basis:${100 - scmSplit}%">${bottomHTML}</div></div></div>`;
+					return `<div class="sol-exp-content"><div class="sol-exp-scm-split"><div class="sol-exp-scm-top" style="flex-basis:${state.scm.scmSplit}%">${topHTML}</div><div class="sol-exp-scm-divider" onpointerdown="window.__solExpScmDividerDown(event)"></div><div class="sol-exp-scm-bottom" style="flex-basis:${100 - state.scm.scmSplit}%">${bottomHTML}</div></div></div>`;
 
 				}
 
@@ -1279,12 +1244,12 @@ async function doStage(files) {
 
 				window.__solExpCommitMsg = (msg) => {
 
-					commitMessage = msg;
+					state.scm.commitMessage = msg;
 
 					// Toggle the commit button in place: a full render() resets the
 					// async-loaded commit history and the textarea caret on every keystroke.
 					document.querySelectorAll(".sol-exp-commit-btn").forEach((btn) => {
-						if (committing || !commitMessage.trim()) btn.setAttribute("disabled", "disabled");
+						if (state.scm.committing || !state.scm.commitMessage.trim()) btn.setAttribute("disabled", "disabled");
 						else btn.removeAttribute("disabled");
 					});
 
@@ -1316,7 +1281,7 @@ async function doStage(files) {
 
 				window.__solExpStageAll = () => {
 
-					const all = [...gitStatus?.unstaged || [], ...gitStatus?.untracked || []].map((i) => i.path);
+					const all = [...state.scm.gitStatus?.unstaged || [], ...state.scm.gitStatus?.untracked || []].map((i) => i.path);
 
 					if (all.length) doStage(all);
 
@@ -1324,7 +1289,7 @@ async function doStage(files) {
 
 				window.__solExpUnstageAll = () => {
 
-					const all = (gitStatus?.staged || []).map((i) => i.path);
+					const all = (state.scm.gitStatus?.staged || []).map((i) => i.path);
 
 					if (all.length) doUnstage(all);
 
@@ -1332,7 +1297,7 @@ async function doStage(files) {
 
 				window.__solExpDiscardAll = async () => {
 
-					const all = [...gitStatus?.unstaged || [], ...gitStatus?.untracked || []].map((i) => i.path);
+					const all = [...state.scm.gitStatus?.unstaged || [], ...state.scm.gitStatus?.untracked || []].map((i) => i.path);
 
 					if (all.length && (await showConfirm({ title: t("scm.changes"), message: t("scm.discardAllConfirm"), okText: document.documentElement.lang?.startsWith("zh") ? "放弃" : "Discard", danger: true }))) doDiscard(all);
 
@@ -1349,12 +1314,12 @@ async function doStage(files) {
 					if (row && row.closest("#sol-exp-commits-list")) {
 						cancelHideCommitTooltip();
 						const hash = row.getAttribute("data-hash") || "";
-						if (hash && hash !== commitTipPending) {
-							if (commitTipShowTimer) clearTimeout(commitTipShowTimer);
-							commitTipPending = hash;
-							commitTipShowTimer = setTimeout(() => {
-								commitTipShowTimer = 0;
-								if (commitTipPending === hash) showCommitTooltip(row, hash);
+						if (hash && hash !== state.commits.commitTipPending) {
+							if (state.commits.commitTipShowTimer) clearTimeout(state.commits.commitTipShowTimer);
+							state.commits.commitTipPending = hash;
+							state.commits.commitTipShowTimer = setTimeout(() => {
+								state.commits.commitTipShowTimer = 0;
+								if (state.commits.commitTipPending === hash) showCommitTooltip(row, hash);
 							}, 350);
 						}
 						return;
@@ -1434,13 +1399,13 @@ async function doStage(files) {
 
 							el.classList.remove("collapsed");
 
-							collapsedSections.delete(id);
+							state.scm.collapsedSections.delete(id);
 
 						} else {
 
 							el.classList.add("collapsed");
 
-							collapsedSections.add(id);
+							state.scm.collapsedSections.add(id);
 
 						}
 
@@ -1482,14 +1447,14 @@ async function doStage(files) {
 				e.preventDefault();
 				// Freeze auto-refresh for the duration of the drag so a poll
 				// cannot rebuild the SCM region under the pointer.
-				scmDragging = true;
+				state.scm.scmDragging = true;
 				// Query inside the active panel: global queries could hit a stale
 				// or duplicate SCM region after session/repo switches.
 				const scope = activeEl ?? document;
 				const split = scope.querySelector(".sol-exp-scm-split");
 				const top = scope.querySelector(".sol-exp-scm-top") as HTMLElement;
 				const bottom = scope.querySelector(".sol-exp-scm-bottom") as HTMLElement;
-				if (!split || !top || !bottom) { scmDragging = false; return; }
+				if (!split || !top || !bottom) { state.scm.scmDragging = false; return; }
 				const el = e.currentTarget as HTMLElement;
 				try { el.setPointerCapture?.(e.pointerId); } catch { /* ignore */ }
 				const rect = split.getBoundingClientRect();
@@ -1497,7 +1462,7 @@ async function doStage(files) {
 				// to the panel height so the ratio never becomes NaN.
 				const height = rect.height > 0 ? rect.height : (split.parentElement?.getBoundingClientRect().height ?? 300) || 300;
 				const startY = e.clientY;
-				const startSplit = scmSplit;
+				const startSplit = state.scm.scmSplit;
 				const onMove = (me) => {
 				const dy = me.clientY - startY;
 				// Re-measure each move: right after startup the split may still be
@@ -1507,18 +1472,18 @@ async function doStage(files) {
 				const target = Math.min(85, Math.max(15, startSplit + (dy / h) * 100));
 				// Clamp the per-move delta so one bad measurement cannot jump the
 				// divider far down/up — the ratio only ever moves by <= 8% per move.
-				const next = Math.min(Math.max(target, scmSplit - 8), scmSplit + 8);
-				if (next === scmSplit) return;
-				scmSplit = next;
+				const next = Math.min(Math.max(target, state.scm.scmSplit - 8), state.scm.scmSplit + 8);
+				if (next === state.scm.scmSplit) return;
+				state.scm.scmSplit = next;
 				// Re-query each move so a refresh replacing the SCM region
 				// mid-drag cannot invalidate the element references.
 				const t = scope.querySelector(".sol-exp-scm-top") as HTMLElement | null;
 				const b = scope.querySelector(".sol-exp-scm-bottom") as HTMLElement | null;
-				if (t) t.style.flexBasis = scmSplit + "%";
-				if (b) b.style.flexBasis = (100 - scmSplit) + "%";
+				if (t) t.style.flexBasis = state.scm.scmSplit + "%";
+				if (b) b.style.flexBasis = (100 - state.scm.scmSplit) + "%";
 				};
 				const onUp = () => {
-				scmDragging = false;
+				state.scm.scmDragging = false;
 				try { el.releasePointerCapture?.(e.pointerId); } catch { /* ignore */ }
 				document.removeEventListener("pointermove", onMove);
 				document.removeEventListener("pointerup", onUp);
@@ -2100,9 +2065,7 @@ async function doStage(files) {
 				};
 				applySettings();
 				window.addEventListener("sol-exp-settings-saved", applySettings);
-				let scmSplit = 55;
 
-				let scmDragging = false;
 
 				let panelFrame = null;
 
@@ -2430,24 +2393,24 @@ styleObs = new MutationObserver(syncGrid);
 
 					state.tree.treeState = null;
 
-					gitStatus = null;
+					state.scm.gitStatus = null;
 
-					gitChangesCount = 0;
+					state.scm.gitChangesCount = 0;
 
 					// Invalidate any in-flight commits fetch from the previous
 					// conversation and drop the cached list so the new repo's
 					// history starts from the loading placeholder.
-					commitsSeq++;
+					state.commits.commitsSeq++;
 
-					commitsHTML = null;
+					state.commits.commitsHTML = null;
 
-					commitsPage = 0;
+					state.commits.commitsPage = 0;
 
-					commitsAllLoaded = false;
+					state.commits.commitsAllLoaded = false;
 
-					commitsLoading = false;
-					commitDetailCache.clear();
-					remotesResolved = false;
+					state.commits.commitsLoading = false;
+					state.commits.commitDetailCache.clear();
+					state.commits.remotesResolved = false;
 
 					state.tree.loading = root !== "";
 
@@ -2455,7 +2418,7 @@ styleObs = new MutationObserver(syncGrid);
 
 					if (root) {
 
-						activeRepo = "";
+						state.scm.activeRepo = "";
 
 						loadTree({ state, render });
 
@@ -2478,7 +2441,7 @@ styleObs = new MutationObserver(syncGrid);
 				// is on screen, patched locally every few seconds.
 				const autoRefreshTimer = setInterval(() => {
 
-					if (root === "" || document.visibilityState !== "visible" || scmDragging) return;
+					if (root === "" || document.visibilityState !== "visible" || state.scm.scmDragging) return;
 
 					if (currentTab === "scm") loadGitStatus();
 

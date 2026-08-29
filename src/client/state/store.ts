@@ -38,10 +38,10 @@ export interface ClipboardState {
 }
 
 export interface ScmState {
-  gitStatus: unknown
+  gitStatus: any
   gitStatusChanged: boolean
   lastHeadHash: string
-  repos: unknown[]
+  repos: any[]
   activeRepo: string
   gitChangesCount: number
   commitMessage: string
@@ -53,14 +53,14 @@ export interface ScmState {
   scmDragging: boolean
   remotePanelOpen: boolean
   branchPanelOpen: boolean
-  remotesList: unknown[]
-  branchesList: unknown[]
+  remotesList: any[]
+  branchesList: any[]
   remoteName: string
   remoteUrl: string
   branchName: string
   branchFrom: string
   branchNewName: string
-  tagsList: unknown[]
+  tagsList: any[]
 }
 
 export interface CommitState {
@@ -69,16 +69,16 @@ export interface CommitState {
   commitsLoading: boolean
   commitsHTML: string | null
   commitsSeq: number
-  graphLanes: unknown[]
-  graphPrevLanes: unknown[]
+  graphLanes: any[]
+  graphPrevLanes: any[]
   graphDetailOpen: string
-  graphColorInUse: Set<unknown>
-  commitDetailCache: Map<string, unknown>
+  graphColorInUse: Set<any>
+  commitDetailCache: Map<string, any>
   commitTipEl: HTMLElement | null
   commitTipHash: string
   commitTipPending: string
-  commitTipShowTimer: unknown
-  commitTipHideTimer: unknown
+  commitTipShowTimer: any
+  commitTipHideTimer: any
   remotesResolved: boolean
 }
 
