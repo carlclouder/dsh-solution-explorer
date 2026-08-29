@@ -361,7 +361,7 @@ j++;
 
 }
 
-full.push({ id: rowIdRef.current++, old: oldLines[i - 1], new: newLines[paired - 1], oldNum: i, newNum: paired, inNew: true, oldDel: oldLines[i - 1] !== newLines[paired - 1], newAdd: oldLines[i - 1] !== newLines[paired - 1] });
+full.push({ id: rowIdRef.current++, old: oldLines[i - 1], new: newLines[paired - 1], oldNum: i, newNum: paired, inNew: true, oldDel: oldLines[i - 1].replace(/\r$/, "") !== newLines[paired - 1].replace(/\r$/, ""), newAdd: oldLines[i - 1].replace(/\r$/, "") !== newLines[paired - 1].replace(/\r$/, "") });
 
 j = paired + 1;
 
