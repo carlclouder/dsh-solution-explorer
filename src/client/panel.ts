@@ -48,6 +48,8 @@ import { waitForFrame } from "./layout/lifecycle.ts"
 
 import { createTerminalController } from "./terminal-client/terminal.ts"
 
+import { registerEditorBridges } from "./editor/editor-bridges.ts"
+
 export function mountPanel(ctx: ClientContext): void {
 			ctx.effect(() => {
 
@@ -583,217 +585,15 @@ export function mountPanel(ctx: ClientContext): void {
 
 				console.log("[sol-exp] injecting __solExpOpenFile");
 
-				window.__solExpOpenFile = async (path) => {
-
-					diffStore.path = null;
-
-					diffStore.content = null;
-
-					diffStore.loading = false;
-
-					notifyDiffListeners();
-
-					editorStore.file = path;
-
-					editorStore.content = null;
-
-					editorStore.loading = true;
-
-					editorStore.error = null;
-
-					editorStore.unsupported = false;
-
-					editorStore.image = false;
-
-					editorStore.root = root;
-
-					notifyEditorListeners();
-
-					try {
-
-						const result = await (await fetch("/solution-explorer/read?root=" + encodeURIComponent(root) + "&file=" + encodeURIComponent(path))).json();
-
-						if (result.ok) if (result.value.image) {
-
-							editorStore.image = true;
-
-							editorStore.content = null;
-
-						} else if (result.value.supported === false) {
-
-							editorStore.unsupported = true;
-
-							editorStore.content = null;
-
-						} else editorStore.content = result.value.content;
-
-						else editorStore.error = result.error?.message || "Failed to read file";
-
-					} catch (err) {
-
-						editorStore.error = err.message || String(err);
-
-					}
-
-					editorStore.loading = false;
-
-					notifyEditorListeners();
-
-					setTimeout(() => {
-
-						const tab = Array.from(document.querySelectorAll("[role=\"tab\"]")).find((el) => el.textContent === (document.documentElement.lang?.startsWith("zh") ? "编辑" : "Edit")) as HTMLElement | null;
-
-						if (tab) tab.click();
-
-					}, 50);
-
-				};
-
-				window.__solExpSaveFile = async () => {
-
-					if (!editorStore.file || editorStore.content === null) return;
-
-					editorStore.saving = true;
-
-					notifyEditorListeners();
-
-					try {
-
-						const result = await (await fetch("/solution-explorer/write", {
-
-							method: "POST",
-
-							headers: { "Content-Type": "application/json" },
-
-							body: JSON.stringify({
-
-								root,
-
-								path: editorStore.file,
-
-								content: editorStore.content
-
-							})
-
-						})).json();
-
-						if (!result.ok) alert("保存失败: " + (result.error?.message || ""));
-
-						else { await loadGitStatus(actionsDeps); await loadTree({ state, render }); }
-
-					} catch (err) {
-
-						alert("保存失败: " + (err.message || String(err)));
-
-					}
-
-					editorStore.saving = false;
-
-					notifyEditorListeners();
-
-				};
-
-				window.__solExpGetEditorState = () => ({
-
-					editorFile: editorStore.file,
-
-					editorContent: editorStore.content,
-
-					editorLoading: editorStore.loading,
-
-					editorError: editorStore.error,
-
-					editorSaving: editorStore.saving,
-
-					editorUnsupported: editorStore.unsupported,
-
-					editorImage: editorStore.image,
-
-					editorRoot: editorStore.root
-
-				});
-
-				window.__solExpEditorListeners = editorStore.listeners;
-
-				window.__solExpOpenDiff = async (path, staged) => {
-
-					diffStore.path = path;
-
-					diffStore.staged = staged;
-
-					diffStore.root = root;
-
-					diffStore.content = null;
-
-					diffStore.oldContent = "";
-
-					diffStore.newContent = "";
-
-					diffStore.loading = true;
-
-					diffStore.unsupported = false;
-
-					notifyDiffListeners();
-
-					try {
-
-						const result = await (await fetch("/solution-explorer/git-diff?root=" + encodeURIComponent(gitRoot()) + "&file=" + encodeURIComponent(path) + "&staged=" + staged)).json();
-
-						if (result.ok) { diffStore.unsupported = result.value.unsupported === true; if (diffStore.unsupported) { diffStore.content = null; diffStore.oldContent = ""; diffStore.newContent = "" } else { diffStore.content = result.value.diff ?? result.value; diffStore.oldContent = result.value.oldContent ?? ""; diffStore.newContent = result.value.newContent ?? "" } }
-
-						else { diffStore.content = null; diffStore.oldContent = ""; diffStore.newContent = "" }
-
-					} catch {
-
-						diffStore.content = null;
-
-						diffStore.oldContent = "";
-
-						diffStore.newContent = "";
-
-					}
-
-					diffStore.loading = false;
-
-					notifyDiffListeners();
-
-					setTimeout(() => {
-
-						const tab = Array.from(document.querySelectorAll("[role=\"tab\"]")).find((el) => el.textContent === (document.documentElement.lang?.startsWith("zh") ? "编辑" : "Edit")) as HTMLElement | null;
-
-						if (tab) tab.click();
-
-					}, 50);
-
-				};
-
-				window.__solExpGetDiffState = () => ({
-
-					diffPath: diffStore.path,
-
-					diffStaged: diffStore.staged,
-
-					diffContent: diffStore.content,
-
-					diffOldContent: diffStore.oldContent,
-
-					diffNewContent: diffStore.newContent,
-
-					diffLoading: diffStore.loading,
-
-					diffUnsupported: diffStore.unsupported,
-
-					diffRoot: diffStore.root
-
-				});
-
-				window.__solExpDiffListeners = diffStore.listeners;
 
 				// History deps: injected into scm/history functions.
 				const historyDeps = { state, loadRemotes };
 
 				// Actions deps: injected into scm/actions functions.
 				const actionsDeps = { state, render, loadRecentCommits };
+
+				// Editor bridges deps: injected into editor/editor-bridges.
+				const editorBridgesDeps = { state, render, loadGitStatus, actionsDeps };
 
 				// Branches deps: injected into scm/branches functions.
 				const branchesDeps = { state };
@@ -816,6 +616,7 @@ export function mountPanel(ctx: ClientContext): void {
 					registerContextMenuBridges({ state, render, loadGitStatus }),
 					registerScmBridges(scmBridgesDeps),
 					registerGridBridges(gridDeps),
+					registerEditorBridges(editorBridgesDeps),
 				];
 
 				return () => {
