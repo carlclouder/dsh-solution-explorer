@@ -20,26 +20,23 @@ import { showToast, showConfirm, showPrompt } from "./shared/ui.ts"
 
 import { folderIcon, fileIcon, isImageFile, gitStatusClass } from "./explorer/icons.ts"
 
+import { createInitialState } from "./state/store.ts"
+
 export function mountPanel(ctx: ClientContext): void {
 			ctx.effect(() => {
+
+				const state = createInitialState();
 
 				let root = "";
 
 				let currentTab = "explorer";
 
-				let treeState = null;
 
-				let loading = false;
 
-				let error = null;
 
-				let searchQuery = "";
 
-				let searchResults = [];
 
-				let searching = false;
 
-				let expandedPaths = /* @__PURE__ */ new Set<string>();
 				// Persisted collapsed state of SCM sections. Kept in state (not
 				// only as a DOM class) so any render() / silent refresh rebuilds
 				// the section with the class — otherwise the repository section
@@ -47,19 +44,12 @@ export function mountPanel(ctx: ClientContext): void {
 				// re-expand and the collapse button looks broken.
 				let collapsedSections = /* @__PURE__ */ new Set<string>();
 
-				let selectedPath = null;
 
-				let selectedPaths = /* @__PURE__ */ new Set<string>();
 
-				let renamingPath = "";
 
-				let selectionAnchor = null;
 
-				let clipboard = null;
 
-				let dragPaths = [];
 
-				let dropTargetPath = null;
 
 				let gitStatus = null;
 				let gitStatusChanged = true;
@@ -160,13 +150,13 @@ let commitTipHideTimer: any = 0;
 
 					// First load (no tree yet) shows the loading state; later
 					// loads reconcile in place so nothing flashes.
-					const hadTree = !!treeState;
+					const hadTree = !!state.tree.treeState;
 
 					if (!hadTree) {
 
-						loading = true;
+						state.tree.loading = true;
 
-						error = null;
+						state.tree.error = null;
 
 						render();
 
@@ -180,13 +170,13 @@ let commitTipHideTimer: any = 0;
 
 						if (result.ok) {
 
-							treeState = result.value;
+							state.tree.treeState = result.value;
 
 							if (hadTree) {
 
 								const container = activeEl ? activeEl.querySelector(".sol-exp-tree") : null;
 
-								if (container) reconcileTree(container, treeState.children || [], 0);
+								if (container) reconcileTree(container, state.tree.treeState.children || [], 0);
 
 								else render();
 
@@ -198,7 +188,7 @@ let commitTipHideTimer: any = 0;
 
 						} else if (!hadTree) {
 
-							error = result.error?.message || "Failed to load tree";
+							state.tree.error = result.error?.message || "Failed to load tree";
 
 						}
 
@@ -206,11 +196,11 @@ let commitTipHideTimer: any = 0;
 
 						if (seq !== loadSeq) return;
 
-						if (!hadTree) error = err instanceof Error ? err.message : String(err);
+						if (!hadTree) state.tree.error = err instanceof Error ? err.message : String(err);
 
 					}
 
-					loading = false;
+					state.tree.loading = false;
 
 					if (!hadTree) render();
 
@@ -221,7 +211,7 @@ let commitTipHideTimer: any = 0;
 				// current tree untouched.
 				async function refreshTreeSilent() {
 
-					if (!root || !treeState) return;
+					if (!root || !state.tree.treeState) return;
 
 					const seq = ++loadSeq;
 
@@ -233,11 +223,11 @@ let commitTipHideTimer: any = 0;
 
 						if (result.ok && result.value) {
 
-							treeState = result.value;
+							state.tree.treeState = result.value;
 
 							const container = activeEl ? activeEl.querySelector(".sol-exp-tree") : null;
 
-							if (container) reconcileTree(container, treeState.children || [], 0);
+							if (container) reconcileTree(container, state.tree.treeState.children || [], 0);
 
 						}
 
@@ -980,13 +970,13 @@ async function doStage(files) {
 
 				async function searchFiles(query) {
 
-					searchQuery = query;
+					state.search.searchQuery = query;
 
 					if (!query.trim()) {
 
-						searching = false;
+						state.search.searching = false;
 
-						searchResults = [];
+						state.search.searchResults = [];
 
 						render();
 
@@ -994,7 +984,7 @@ async function doStage(files) {
 
 					}
 
-					searching = true;
+					state.search.searching = true;
 
 					render();
 
@@ -1002,9 +992,9 @@ async function doStage(files) {
 
 						const result = await (await fetch(`/solution-explorer/search?root=${encodeURIComponent(root)}&q=${encodeURIComponent(query)}`)).json();
 
-						if (searchQuery !== query) return;
+						if (state.search.searchQuery !== query) return;
 
-						if (result.ok) searchResults = result.value;
+						if (result.ok) state.search.searchResults = result.value;
 
 						render();
 
@@ -1088,15 +1078,15 @@ async function doStage(files) {
 
 					let contentHTML = "";
 
-					if (searching) if (searchResults.length === 0) contentHTML = `<div class="sol-exp-empty">${document.documentElement.lang?.startsWith("zh") ? "无匹配文件" : "No matching files"}</div>`;
+					if (state.search.searching) if (state.search.searchResults.length === 0) contentHTML = `<div class="sol-exp-empty">${document.documentElement.lang?.startsWith("zh") ? "无匹配文件" : "No matching files"}</div>`;
 
-					else contentHTML = "<div class=\"sol-exp-search-results\">" + searchResults.map((r) => {
+					else contentHTML = "<div class=\"sol-exp-search-results\">" + state.search.searchResults.map((r) => {
 
 						const pathJs = r.path.replace(/'/g, "\\'").replace(/\\/g, "\\\\");
 
 						return `
 
-              <div class="sol-exp-search-item ${selectedPath === r.path ? "sol-exp-selected" : ""}"
+              <div class="sol-exp-search-item ${state.tree.selectedPath === r.path ? "sol-exp-selected" : ""}"
 
                    onclick="window.__solExpSelectFile('${pathJs}', ${r.type === "directory"})"
 
@@ -1126,7 +1116,7 @@ async function doStage(files) {
 
           <svg class="sol-exp-search-icon" width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
 
-          <input type="text" class="sol-exp-search-input" placeholder="${searchPlaceholder}" value="${searchQuery}" oninput="window.__solExpSearch(this.value)" onkeydown="if(event.key==='Escape'){this.value='';window.__solExpSearch('')}"/>
+          <input type="text" class="sol-exp-search-input" placeholder="${searchPlaceholder}" value="${state.search.searchQuery}" oninput="window.__solExpSearch(this.value)" onkeydown="if(event.key==='Escape'){this.value='';window.__solExpSearch('')}"/>
 
         </div>
 
@@ -1142,11 +1132,11 @@ async function doStage(files) {
 
 					let contentHTML = "";
 
-					if (loading) contentHTML = `<div class="sol-exp-loading">${t("loading")}</div>`;
+					if (state.tree.loading) contentHTML = `<div class="sol-exp-loading">${t("loading")}</div>`;
 
-					else if (error) contentHTML = `<div class="sol-exp-error">${error}</div>`;
+					else if (state.tree.error) contentHTML = `<div class="sol-exp-error">${state.tree.error}</div>`;
 
-					else if (treeState) contentHTML = "<div class=\"sol-exp-tree\" oncontextmenu=\"event.preventDefault();event.stopPropagation();window.__solExpContextMenu('', event.pageX, event.pageY, false)\" ondragover=\"event.preventDefault();event.stopPropagation()\" ondrop=\"event.preventDefault();event.stopPropagation();window.__solExpDrop('', event)\">" + (treeState.children || []).map((c) => renderTreeNode(c, 0)).join("") + "</div>";
+					else if (state.tree.treeState) contentHTML = "<div class=\"sol-exp-tree\" oncontextmenu=\"event.preventDefault();event.stopPropagation();window.__solExpContextMenu('', event.pageX, event.pageY, false)\" ondragover=\"event.preventDefault();event.stopPropagation()\" ondrop=\"event.preventDefault();event.stopPropagation();window.__solExpDrop('', event)\">" + (state.tree.treeState.children || []).map((c) => renderTreeNode(c, 0)).join("") + "</div>";
 
 					else contentHTML = `<div class="sol-exp-empty">${emptyText}</div>`;
 
@@ -1447,13 +1437,13 @@ async function doStage(files) {
 
 					const isDir = node.type === "directory";
 
-					const isExpanded = expandedPaths.has(node.path);
+					const isExpanded = state.tree.expandedPaths.has(node.path);
 
-					const isSelected = selectedPaths.has(node.path);
+					const isSelected = state.tree.selectedPaths.has(node.path);
 
-					const isCut = clipboard?.mode === "cut" && clipboard.paths.includes(node.path);
+					const isCut = state.clipboard.clipboard?.mode === "cut" && state.clipboard.clipboard.paths.includes(node.path);
 
-					const isDropTarget = isDir && dropTargetPath === node.path && dragPaths.length > 0;
+					const isDropTarget = isDir && state.clipboard.dropTargetPath === node.path && state.clipboard.dragPaths.length > 0;
 
 					const hasChildren = isDir && node.children && node.children.length > 0;
 
@@ -1498,7 +1488,7 @@ async function doStage(files) {
 
             <span class="sol-exp-file-icon">${icon}</span>
 
-            ${node.path === renamingPath
+            ${node.path === state.tree.renamingPath
               ? `<input class="sol-exp-rename-input" data-sol-exp-rename="1" value="${escapeHtml(node.name)}" onclick="event.stopPropagation()" onkeydown="if(event.key==='Enter')window.__solExpRenameCommit(this.value);else if(event.key==='Escape')window.__solExpRenameCancel()" onblur="window.__solExpRenameCommit(this.value)" />`
               : `<span class="sol-exp-file-name${gitCls ? " sol-exp-git-" + gitCls : ""}">${escapeHtml(node.name)}</span>`}
 
@@ -1562,7 +1552,7 @@ async function doStage(files) {
 
 							const isDir = node.type === "directory";
 
-							if (isDir && expandedPaths.has(node.path)) {
+							if (isDir && state.tree.expandedPaths.has(node.path)) {
 
 								const childBox = wrapper.querySelector(".sol-exp-tree-children");
 
@@ -1603,7 +1593,6 @@ async function doStage(files) {
 
 				}
 
-				let searchTimer;
 
 				window.__solExpTab = (tab) => {
 
@@ -1638,9 +1627,9 @@ async function doStage(files) {
 
 				window.__solExpToggleExpand = (path) => {
 
-					if (expandedPaths.has(path)) expandedPaths.delete(path);
+					if (state.tree.expandedPaths.has(path)) state.tree.expandedPaths.delete(path);
 
-					else expandedPaths.add(path);
+					else state.tree.expandedPaths.add(path);
 
 					render();
 
@@ -1660,13 +1649,13 @@ async function doStage(files) {
 
 							acc = acc ? acc + "/" + parts[i] : parts[i];
 
-							expandedPaths.add(acc);
+							state.tree.expandedPaths.add(acc);
 
 						}
 
-						selectedPaths = /* @__PURE__ */ new Set([path]);
+						state.tree.selectedPaths = /* @__PURE__ */ new Set([path]);
 
-						selectedPath = null;
+						state.tree.selectedPath = null;
 
 						render();
 
@@ -1674,7 +1663,7 @@ async function doStage(files) {
 
 					}
 
-					selectedPath = path;
+					state.tree.selectedPath = path;
 
 					if (typeof window.__solExpOpenFile === "function") window.__solExpOpenFile(path);
 
@@ -1682,13 +1671,13 @@ async function doStage(files) {
 
 				window.__solExpClearSelection = () => {
 
-					if (selectedPaths.size || selectedPath) {
+					if (state.tree.selectedPaths.size || state.tree.selectedPath) {
 
-						selectedPaths = /* @__PURE__ */ new Set<string>();
+						state.tree.selectedPaths = /* @__PURE__ */ new Set<string>();
 
-						selectionAnchor = null;
+						state.tree.selectionAnchor = null;
 
-						selectedPath = null;
+						state.tree.selectedPath = null;
 
 						render();
 
@@ -1700,13 +1689,13 @@ async function doStage(files) {
 
 					if (ctrl) {
 
-						if (selectedPaths.has(path)) selectedPaths.delete(path);
+						if (state.tree.selectedPaths.has(path)) state.tree.selectedPaths.delete(path);
 
-						else selectedPaths.add(path);
+						else state.tree.selectedPaths.add(path);
 
-						selectionAnchor = path;
+						state.tree.selectionAnchor = path;
 
-					} else if (shift && selectionAnchor) {
+					} else if (shift && state.tree.selectionAnchor) {
 
 						const order = [];
 
@@ -1718,37 +1707,37 @@ async function doStage(files) {
 
 						};
 
-						if (treeState) collect(treeState);
+						if (state.tree.treeState) collect(state.tree.treeState);
 
-						const a = order.indexOf(selectionAnchor), b = order.indexOf(path);
+						const a = order.indexOf(state.tree.selectionAnchor), b = order.indexOf(path);
 
 						if (a >= 0 && b >= 0) {
 
 							const [lo, hi] = a < b ? [a, b] : [b, a];
 
-							selectedPaths = new Set(order.slice(lo, hi + 1));
+							state.tree.selectedPaths = new Set(order.slice(lo, hi + 1));
 
 						} else {
 
-							selectedPaths = /* @__PURE__ */ new Set([path]);
+							state.tree.selectedPaths = /* @__PURE__ */ new Set([path]);
 
-							selectionAnchor = path;
+							state.tree.selectionAnchor = path;
 
 						}
 
 					} else {
 
-						selectedPaths = /* @__PURE__ */ new Set([path]);
+						state.tree.selectedPaths = /* @__PURE__ */ new Set([path]);
 
-						selectionAnchor = path;
+						state.tree.selectionAnchor = path;
 
 					}
 
-					selectedPath = path;
+					state.tree.selectedPath = path;
 
-					if (isDir) if (expandedPaths.has(path)) expandedPaths.delete(path);
+					if (isDir) if (state.tree.expandedPaths.has(path)) state.tree.expandedPaths.delete(path);
 
-					else expandedPaths.add(path);
+					else state.tree.expandedPaths.add(path);
 
 					render();
 
@@ -1756,11 +1745,11 @@ async function doStage(files) {
 
 				window.__solExpCopy = () => {
 
-					if (selectedPaths.size) {
+					if (state.tree.selectedPaths.size) {
 
-						clipboard = {
+						state.clipboard.clipboard = {
 
-							paths: [...selectedPaths],
+							paths: [...state.tree.selectedPaths],
 
 							mode: "copy"
 
@@ -1774,11 +1763,11 @@ async function doStage(files) {
 
 				window.__solExpCut = () => {
 
-					if (selectedPaths.size) {
+					if (state.tree.selectedPaths.size) {
 
-						clipboard = {
+						state.clipboard.clipboard = {
 
-							paths: [...selectedPaths],
+							paths: [...state.tree.selectedPaths],
 
 							mode: "cut"
 
@@ -1792,11 +1781,11 @@ async function doStage(files) {
 
 				window.__solExpPaste = async (target) => {
 
-					if (!clipboard || !clipboard.paths.length || !root) return;
+					if (!state.clipboard.clipboard || !state.clipboard.clipboard.paths.length || !root) return;
 
-					const { paths, mode } = clipboard;
+					const { paths, mode } = state.clipboard.clipboard;
 
-					clipboard = null;
+					state.clipboard.clipboard = null;
 
 					let targetDir = target;
 
@@ -1818,7 +1807,7 @@ async function doStage(files) {
 
 						};
 
-						const node = treeState ? find(treeState) : null;
+						const node = state.tree.treeState ? find(state.tree.treeState) : null;
 
 						if (!node || node.type !== "directory") {
 
@@ -1968,7 +1957,7 @@ async function doStage(files) {
 
 				window.__solExpDragStart = (path) => {
 
-					dragPaths = selectedPaths.has(path) ? [...selectedPaths] : [path];
+					state.clipboard.dragPaths = state.tree.selectedPaths.has(path) ? [...state.tree.selectedPaths] : [path];
 
 				};
 
@@ -1978,7 +1967,7 @@ async function doStage(files) {
 
 					clear();
 
-					if (dragPaths.length && !dragPaths.includes(path)) {
+					if (state.clipboard.dragPaths.length && !state.clipboard.dragPaths.includes(path)) {
 
 						const node = (evt.target as HTMLElement)?.closest(".sol-exp-tree-node");
 
@@ -1986,7 +1975,7 @@ async function doStage(files) {
 
 					}
 
-					dropTargetPath = path;
+					state.clipboard.dropTargetPath = path;
 
 				};
 
@@ -2004,11 +1993,11 @@ async function doStage(files) {
 
 					const targetDir = path;
 
-					const sources = dragPaths;
+					const sources = state.clipboard.dragPaths;
 
-					dragPaths = [];
+					state.clipboard.dragPaths = [];
 
-					dropTargetPath = null;
+					state.clipboard.dropTargetPath = null;
 
 					document.querySelectorAll(".sol-exp-drop-target").forEach((el) => el.classList.remove("sol-exp-drop-target"));
 
@@ -2198,7 +2187,7 @@ async function doStage(files) {
 
 				window.__solExpCollapseAll = () => {
 
-					expandedPaths = /* @__PURE__ */ new Set<string>();
+					state.tree.expandedPaths = /* @__PURE__ */ new Set<string>();
 
 					render();
 
@@ -2220,9 +2209,9 @@ async function doStage(files) {
 
 					};
 
-					if (treeState) collect(treeState);
+					if (state.tree.treeState) collect(state.tree.treeState);
 
-					expandedPaths = paths;
+					state.tree.expandedPaths = paths;
 
 					render();
 
@@ -2233,7 +2222,7 @@ async function doStage(files) {
 					// Refresh without the loading flash once a tree exists:
 					// reconcile in place; only the very first load falls back
 					// to the full loading path.
-					if (treeState) refreshTreeSilent();
+					if (state.tree.treeState) refreshTreeSilent();
 
 					else loadTree();
 
@@ -2243,11 +2232,11 @@ async function doStage(files) {
 
 				window.__solExpClearSearch = () => {
 
-					searchQuery = "";
+					state.search.searchQuery = "";
 
-					searching = false;
+					state.search.searching = false;
 
-					searchResults = [];
+					state.search.searchResults = [];
 
 					render();
 
@@ -2255,9 +2244,9 @@ async function doStage(files) {
 
 				window.__solExpSearch = (query) => {
 
-					if (searchTimer) clearTimeout(searchTimer);
+					if (state.search.searchTimer) clearTimeout(state.search.searchTimer);
 
-					searchTimer = setTimeout(() => searchFiles(query), 300);
+					state.search.searchTimer = setTimeout(() => searchFiles(query), 300);
 
 				};
 
@@ -2398,13 +2387,13 @@ async function doStage(files) {
 
 					if (el.closest(".sol-exp-tree-node") || el.closest(".sol-exp-search-item") || el.closest(".sol-exp-scm-item") || el.closest(".sol-exp-context-menu") || el.closest(".sol-exp-commit-item") || el.closest(".sol-exp-commit-detail-inline")) return;
 
-					if (selectedPaths.size || selectedPath) {
+					if (state.tree.selectedPaths.size || state.tree.selectedPath) {
 
-						selectedPaths = /* @__PURE__ */ new Set<string>();
+						state.tree.selectedPaths = /* @__PURE__ */ new Set<string>();
 
-						selectionAnchor = null;
+						state.tree.selectionAnchor = null;
 
-						selectedPath = null;
+						state.tree.selectedPath = null;
 
 						render();
 
@@ -2414,11 +2403,11 @@ async function doStage(files) {
 
 				document.addEventListener("dragend", () => {
 
-					if (dragPaths.length || dropTargetPath) {
+					if (state.clipboard.dragPaths.length || state.clipboard.dropTargetPath) {
 
-						dragPaths = [];
+						state.clipboard.dragPaths = [];
 
-						dropTargetPath = null;
+						state.clipboard.dropTargetPath = null;
 
 						render();
 
@@ -2442,13 +2431,13 @@ async function doStage(files) {
 
 					hideContextMenu();
 
-					if (target && !selectedPaths.has(target)) {
+					if (target && !state.tree.selectedPaths.has(target)) {
 
-						selectedPaths = /* @__PURE__ */ new Set([target]);
+						state.tree.selectedPaths = /* @__PURE__ */ new Set([target]);
 
-						selectionAnchor = target;
+						state.tree.selectionAnchor = target;
 
-						selectedPath = target;
+						state.tree.selectedPath = target;
 
 					}
 
@@ -2484,7 +2473,7 @@ async function doStage(files) {
 
 					};
 
-					const targets = target && selectedPaths.has(target) ? [...selectedPaths] : target ? [target] : [];
+					const targets = target && state.tree.selectedPaths.has(target) ? [...state.tree.selectedPaths] : target ? [target] : [];
 
 					const base = isDir ? target : target ? target.includes("/") ? target.slice(0, target.lastIndexOf("/")) : target.includes("\\") ? target.slice(0, target.lastIndexOf("\\")) : "" : "";
 
@@ -2522,7 +2511,7 @@ async function doStage(files) {
 
 					}
 
-					if (clipboard && clipboard.paths.length) addItem("粘贴到此处" + (clipboard.mode === "cut" ? "（剪切）" : ""), false, () => window.__solExpPaste(isDir ? target : target || ""));
+					if (state.clipboard.clipboard && state.clipboard.clipboard.paths.length) addItem("粘贴到此处" + (state.clipboard.clipboard.mode === "cut" ? "（剪切）" : ""), false, () => window.__solExpPaste(isDir ? target : target || ""));
 
 					if (menu.childNodes.length === 0) return;
 
@@ -2534,7 +2523,7 @@ async function doStage(files) {
 
 				window.__solExpRename = (path) => {
 
-					renamingPath = path;
+					state.tree.renamingPath = path;
 
 					render();
 
@@ -2546,9 +2535,9 @@ async function doStage(files) {
 
 				window.__solExpRenameCancel = () => {
 
-					if (!renamingPath) return;
+					if (!state.tree.renamingPath) return;
 
-					renamingPath = "";
+					state.tree.renamingPath = "";
 
 					render();
 
@@ -2556,11 +2545,11 @@ async function doStage(files) {
 
 				window.__solExpRenameCommit = async (name) => {
 
-					const path = renamingPath;
+					const path = state.tree.renamingPath;
 
 					if (!path) return;
 
-					renamingPath = "";
+					state.tree.renamingPath = "";
 
 					const newName = String(name || "").trim();
 
@@ -2582,7 +2571,7 @@ async function doStage(files) {
 
 						if (result.ok) {
 
-							if (treeState) refreshTreeSilent();
+							if (state.tree.treeState) refreshTreeSilent();
 
 							else loadTree();
 
@@ -2651,7 +2640,7 @@ async function doStage(files) {
 
 					}
 
-					for (const p of paths) selectedPaths.delete(p);
+					for (const p of paths) state.tree.selectedPaths.delete(p);
 
 					// If the editor is showing a deleted file, close it so the
 					// stale preview (an image especially) cannot linger.
@@ -2681,7 +2670,7 @@ async function doStage(files) {
 
 					// Silent refresh: reconcile the tree in place and update
 					// SCM state — no loading flash, no full-panel rebuild.
-					if (treeState) refreshTreeSilent();
+					if (state.tree.treeState) refreshTreeSilent();
 
 					else loadTree();
 
@@ -3704,7 +3693,7 @@ styleObs = new MutationObserver(syncGrid);
 
 					root = newRoot;
 
-					treeState = null;
+					state.tree.treeState = null;
 
 					gitStatus = null;
 
@@ -3725,7 +3714,7 @@ styleObs = new MutationObserver(syncGrid);
 					commitDetailCache.clear();
 					remotesResolved = false;
 
-					loading = root !== "";
+					state.tree.loading = root !== "";
 
 					render();
 

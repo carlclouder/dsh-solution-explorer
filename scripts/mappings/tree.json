@@ -1,0 +1,17 @@
+{
+  "treeState": "state.tree.treeState",
+  "loading": "state.tree.loading",
+  "error": "state.tree.error",
+  "expandedPaths": "state.tree.expandedPaths",
+  "selectedPath": "state.tree.selectedPath",
+  "selectedPaths": "state.tree.selectedPaths",
+  "renamingPath": "state.tree.renamingPath",
+  "selectionAnchor": "state.tree.selectionAnchor",
+  "searchQuery": "state.search.searchQuery",
+  "searchResults": "state.search.searchResults",
+  "searching": "state.search.searching",
+  "searchTimer": "state.search.searchTimer",
+  "clipboard": "state.clipboard.clipboard",
+  "dragPaths": "state.clipboard.dragPaths",
+  "dropTargetPath": "state.clipboard.dropTargetPath"
+}

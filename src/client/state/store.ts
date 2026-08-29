@@ -14,9 +14,9 @@
 // ─── Domain shapes ──────────────────────────────────────────────────────────
 
 export interface TreeState {
-  treeState: unknown
+  treeState: any
   loading: boolean
-  error: unknown
+  error: any
   expandedPaths: Set<string>
   selectedPath: string | null
   selectedPaths: Set<string>
@@ -26,9 +26,9 @@ export interface TreeState {
 
 export interface SearchState {
   searchQuery: string
-  searchResults: unknown[]
+  searchResults: any[]
   searching: boolean
-  searchTimer: unknown
+  searchTimer: any
 }
 
 export interface ClipboardState {
