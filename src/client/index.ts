@@ -32,6 +32,12 @@ import { XTERM_CSS } from './xterm-css.ts'
 
 import { STYLES } from './styles.ts'
 
+import { editorStore, notifyEditorListeners } from './state/editor-store.ts'
+
+import { diffStore, notifyDiffListeners, parseSideBySide } from './state/diff-store.ts'
+
+import { setCaretAt } from './shared/dom.ts'
+
 
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -193,186 +199,6 @@ declare global {
 			"slots"
 
 		];
-
-		let _editorFile = null;
-
-		let _editorContent = null;
-
-		let _editorLoading = false;
-
-		let _editorError = null;
-
-		let _editorSaving = false;
-
-		let _editorUnsupported = false;
-
-		let _editorImage = false;
-
-		let _editorRoot = "";
-
-		const _editorListeners = /* @__PURE__ */ new Set<() => void>();
-
-		let _diffPath = null;
-
-		let _diffStaged = false;
-
-		let _diffRoot = "";
-
-		let _diffContent = null;
-
-		let _diffOldContent = "";
-
-		let _diffNewContent = "";
-
-		let _diffLoading = false;
-
-		let _diffUnsupported = false;
-
-		const _diffListeners = /* @__PURE__ */ new Set<() => void>();
-
-		function caretOffsetIn(el) {
-
-const sel = window.getSelection();
-
-if (!sel || sel.rangeCount === 0) return 0;
-
-const range = sel.getRangeAt(0);
-
-const pre = document.createRange();
-
-pre.selectNodeContents(el);
-
-pre.setEnd(range.startContainer, range.startOffset);
-
-return pre.toString().length;
-
-}
-
-function setCaretAt(el, offset) {
-
-el.focus();
-
-const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-
-let remaining = offset;
-
-let node = null;
-
-while (walker.nextNode()) {
-
-const len = walker.currentNode.textContent.length;
-
-if (remaining <= len) { node = walker.currentNode; break; }
-
-remaining -= len;
-
-}
-
-const range = document.createRange();
-
-if (node) { range.setStart(node, remaining); range.collapse(true); }
-
-else { range.selectNodeContents(el); range.collapse(false); }
-
-const sel = window.getSelection();
-
-if (sel) { sel.removeAllRanges(); sel.addRange(range); }
-
-}
-
-function _notifyDiffListeners() {
-
-			for (const fn of _diffListeners) _diffListeners.has(fn) && fn();
-
-		}
-
-		/** Convert a unified diff into old/new row pairs (with line numbers) for a side-by-side view. */
-
-		function parseSideBySide(content) {
-
-			const rows = [];
-
-			let oldLine = 0, newLine = 0;
-
-			for (const line of content.split("\n")) {
-
-				if (line.startsWith("diff ") || line.startsWith("index ") || line.startsWith("---") || line.startsWith("+++")) continue;
-
-				if (line.startsWith("@@")) {
-
-					const m = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-
-					if (m) {
-
-						oldLine = parseInt(m[1], 10);
-
-						newLine = parseInt(m[2], 10);
-
-					}
-
-					continue;
-
-				}
-
-				if (line.startsWith("+")) {
-
-					rows.push({
-
-						old: "",
-
-						new: line.slice(1),
-
-						oldNum: null,
-
-						newNum: newLine++
-
-					});
-
-					continue;
-
-				}
-
-				if (line.startsWith("-")) {
-
-					rows.push({
-
-						old: line.slice(1),
-
-						new: "",
-
-						oldNum: oldLine++,
-
-						newNum: null
-
-					});
-
-					continue;
-
-				}
-
-				rows.push({
-
-					old: line.slice(1),
-
-					new: line.slice(1),
-
-					oldNum: oldLine++,
-
-					newNum: newLine++
-
-				});
-
-			}
-
-			return rows;
-
-		}
-
-		function _notifyEditorListeners() {
-
-			for (const fn of _editorListeners) _editorListeners.has(fn) && fn();
-
-		}
 
 		function apply(ctx: ClientContext) {
 
@@ -3188,25 +3014,25 @@ async function doStage(files) {
 
 					// If the editor is showing a deleted file, close it so the
 					// stale preview (an image especially) cannot linger.
-					if (_editorFile && paths.includes(_editorFile)) {
+					if (editorStore.file && paths.includes(editorStore.file)) {
 
-						_editorFile = null;
+						editorStore.file = null;
 
-						_editorContent = null;
+						editorStore.content = null;
 
-						_editorLoading = false;
+						editorStore.loading = false;
 
-						_editorError = null;
+						editorStore.error = null;
 
-						_editorUnsupported = false;
+						editorStore.unsupported = false;
 
-						_editorImage = false;
+						editorStore.image = false;
 
-						_editorSaving = false;
+						editorStore.saving = false;
 
-						_editorRoot = "";
+						editorStore.root = "";
 
-						_notifyEditorListeners();
+						notifyEditorListeners();
 
 					}
 
@@ -4299,29 +4125,29 @@ styleObs = new MutationObserver(syncGrid);
 
 				window.__solExpOpenFile = async (path) => {
 
-					_diffPath = null;
+					diffStore.path = null;
 
-					_diffContent = null;
+					diffStore.content = null;
 
-					_diffLoading = false;
+					diffStore.loading = false;
 
-					_notifyDiffListeners();
+					notifyDiffListeners();
 
-					_editorFile = path;
+					editorStore.file = path;
 
-					_editorContent = null;
+					editorStore.content = null;
 
-					_editorLoading = true;
+					editorStore.loading = true;
 
-					_editorError = null;
+					editorStore.error = null;
 
-					_editorUnsupported = false;
+					editorStore.unsupported = false;
 
-					_editorImage = false;
+					editorStore.image = false;
 
-					_editorRoot = root;
+					editorStore.root = root;
 
-					_notifyEditorListeners();
+					notifyEditorListeners();
 
 					try {
 
@@ -4329,29 +4155,29 @@ styleObs = new MutationObserver(syncGrid);
 
 						if (result.ok) if (result.value.image) {
 
-							_editorImage = true;
+							editorStore.image = true;
 
-							_editorContent = null;
+							editorStore.content = null;
 
 						} else if (result.value.supported === false) {
 
-							_editorUnsupported = true;
+							editorStore.unsupported = true;
 
-							_editorContent = null;
+							editorStore.content = null;
 
-						} else _editorContent = result.value.content;
+						} else editorStore.content = result.value.content;
 
-						else _editorError = result.error?.message || "Failed to read file";
+						else editorStore.error = result.error?.message || "Failed to read file";
 
 					} catch (err) {
 
-						_editorError = err.message || String(err);
+						editorStore.error = err.message || String(err);
 
 					}
 
-					_editorLoading = false;
+					editorStore.loading = false;
 
-					_notifyEditorListeners();
+					notifyEditorListeners();
 
 					setTimeout(() => {
 
@@ -4365,11 +4191,11 @@ styleObs = new MutationObserver(syncGrid);
 
 				window.__solExpSaveFile = async () => {
 
-					if (!_editorFile || _editorContent === null) return;
+					if (!editorStore.file || editorStore.content === null) return;
 
-					_editorSaving = true;
+					editorStore.saving = true;
 
-					_notifyEditorListeners();
+					notifyEditorListeners();
 
 					try {
 
@@ -4383,9 +4209,9 @@ styleObs = new MutationObserver(syncGrid);
 
 								root,
 
-								path: _editorFile,
+								path: editorStore.file,
 
-								content: _editorContent
+								content: editorStore.content
 
 							})
 
@@ -4401,75 +4227,75 @@ styleObs = new MutationObserver(syncGrid);
 
 					}
 
-					_editorSaving = false;
+					editorStore.saving = false;
 
-					_notifyEditorListeners();
+					notifyEditorListeners();
 
 				};
 
 				window.__solExpGetEditorState = () => ({
 
-					editorFile: _editorFile,
+					editorFile: editorStore.file,
 
-					editorContent: _editorContent,
+					editorContent: editorStore.content,
 
-					editorLoading: _editorLoading,
+					editorLoading: editorStore.loading,
 
-					editorError: _editorError,
+					editorError: editorStore.error,
 
-					editorSaving: _editorSaving,
+					editorSaving: editorStore.saving,
 
-					editorUnsupported: _editorUnsupported,
+					editorUnsupported: editorStore.unsupported,
 
-					editorImage: _editorImage,
+					editorImage: editorStore.image,
 
-					editorRoot: _editorRoot
+					editorRoot: editorStore.root
 
 				});
 
-				window.__solExpEditorListeners = _editorListeners;
+				window.__solExpEditorListeners = editorStore.listeners;
 
 				window.__solExpOpenDiff = async (path, staged) => {
 
-					_diffPath = path;
+					diffStore.path = path;
 
-					_diffStaged = staged;
+					diffStore.staged = staged;
 
-					_diffRoot = root;
+					diffStore.root = root;
 
-					_diffContent = null;
+					diffStore.content = null;
 
-					_diffOldContent = "";
+					diffStore.oldContent = "";
 
-					_diffNewContent = "";
+					diffStore.newContent = "";
 
-					_diffLoading = true;
+					diffStore.loading = true;
 
-					_diffUnsupported = false;
+					diffStore.unsupported = false;
 
-					_notifyDiffListeners();
+					notifyDiffListeners();
 
 					try {
 
 						const result = await (await fetch("/solution-explorer/git-diff?root=" + encodeURIComponent(gitRoot()) + "&file=" + encodeURIComponent(path) + "&staged=" + staged)).json();
 
-						if (result.ok) { _diffUnsupported = result.value.unsupported === true; if (_diffUnsupported) { _diffContent = null; _diffOldContent = ""; _diffNewContent = "" } else { _diffContent = result.value.diff ?? result.value; _diffOldContent = result.value.oldContent ?? ""; _diffNewContent = result.value.newContent ?? "" } }
+						if (result.ok) { diffStore.unsupported = result.value.unsupported === true; if (diffStore.unsupported) { diffStore.content = null; diffStore.oldContent = ""; diffStore.newContent = "" } else { diffStore.content = result.value.diff ?? result.value; diffStore.oldContent = result.value.oldContent ?? ""; diffStore.newContent = result.value.newContent ?? "" } }
 
-						else { _diffContent = null; _diffOldContent = ""; _diffNewContent = "" }
+						else { diffStore.content = null; diffStore.oldContent = ""; diffStore.newContent = "" }
 
 					} catch {
 
-						_diffContent = null;
+						diffStore.content = null;
 
-						_diffOldContent = "";
+						diffStore.oldContent = "";
 
-						_diffNewContent = "";
+						diffStore.newContent = "";
 
 					}
 
-					_diffLoading = false;
+					diffStore.loading = false;
 
-					_notifyDiffListeners();
+					notifyDiffListeners();
 
 					setTimeout(() => {
 
@@ -4483,25 +4309,25 @@ styleObs = new MutationObserver(syncGrid);
 
 				window.__solExpGetDiffState = () => ({
 
-					diffPath: _diffPath,
+					diffPath: diffStore.path,
 
-					diffStaged: _diffStaged,
+					diffStaged: diffStore.staged,
 
-					diffContent: _diffContent,
+					diffContent: diffStore.content,
 
-					diffOldContent: _diffOldContent,
+					diffOldContent: diffStore.oldContent,
 
-					diffNewContent: _diffNewContent,
+					diffNewContent: diffStore.newContent,
 
-					diffLoading: _diffLoading,
+					diffLoading: diffStore.loading,
 
-					diffUnsupported: _diffUnsupported,
+					diffUnsupported: diffStore.unsupported,
 
-					diffRoot: _diffRoot
+					diffRoot: diffStore.root
 
 				});
 
-				window.__solExpDiffListeners = _diffListeners;
+				window.__solExpDiffListeners = diffStore.listeners;
 
 				return () => {
 
@@ -5782,7 +5608,7 @@ overflow: "auto"
 },
 defaultValue: st.editorContent ?? "",
 onInput: (e) => {
-_editorContent = e.target.value;
+editorStore.content = e.target.value;
 setDirty(true);
 },
 onScroll: (e) => {
