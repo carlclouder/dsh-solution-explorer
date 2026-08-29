@@ -30,6 +30,10 @@ import { registerClipboardBridges } from "./explorer/clipboard.ts"
 
 import { registerContextMenuBridges } from "./explorer/context-menu.ts"
 
+import { buildSCMTopHTML, buildSCMContent } from "./scm/scm-view.ts"
+
+import { resetGraph, commitsListHTML, renderGraphRow } from "./scm/graph.ts"
+
 export function mountPanel(ctx: ClientContext): void {
 			ctx.effect(() => {
 
@@ -149,7 +153,7 @@ export function mountPanel(ctx: ClientContext): void {
 							el.classList.toggle("active", el.getAttribute("data-repo-path") === path);
 						});
 						const scmTop = activeEl.querySelector(".sol-exp-scm-top");
-						if (scmTop) scmTop.innerHTML = buildSCMTopHTML();
+						if (scmTop) scmTop.innerHTML = buildSCMTopHTML(state.scm);
 					}
 				};
 async function loadGitStatus() {
@@ -221,7 +225,7 @@ async function loadGitStatus() {
 
 							if (scmTop) {
 
-								const html = buildSCMTopHTML();
+								const html = buildSCMTopHTML(state.scm);
 
 								if (scmTop.innerHTML !== html) {
 
@@ -252,82 +256,14 @@ async function loadGitStatus() {
 				}
 
 const GRAPH_COLORS = ["#e2b714", "#4ec9b0", "#58a6ff", "#d2a8ff", "#ff7b72", "#79c0ff", "#7ee787", "#ffa657"];
-function resetGraph() {
-  state.commits.graphLanes = [];
-  state.commits.graphPrevLanes = [];
-  state.commits.graphDetailOpen = "";
-  state.commits.graphColorInUse = new Set();
-}
 
-function allocGraphColor() {
-  for (let c = 0; c < GRAPH_COLORS.length; c++) {
-    if (!state.commits.graphColorInUse.has(c)) { state.commits.graphColorInUse.add(c); return c; }
-  }
-  // More active lanes than colors: wrap (rare; >8 simultaneous branches).
-  return state.commits.graphColorInUse.size % GRAPH_COLORS.length;
-}
 
-function freeGraphColor(c) {
-  state.commits.graphColorInUse.delete(c);
-}
+
+
+
 
 /** One graph row: vertical lanes + node + merge/branch transition lines (lane algorithm). */
-function renderGraphRow(commit) {
-  const laneW = 14, rowH = 20, nodeR = 3;
-  const parents = commit.parents || [];
-  let idx = state.commits.graphLanes.findIndex((l) => l.hash === commit.hash);
-  if (idx === -1) { idx = state.commits.graphLanes.length; state.commits.graphLanes.push({ hash: commit.hash, color: allocGraphColor() }); }
-  const nodeColor = state.commits.graphLanes[idx].color;
 
-  // Build the next row's lanes now so merge fork lines can be drawn into them.
-  const nextLanes = state.commits.graphLanes.slice();
-  nextLanes.splice(idx, 1);
-  if (parents[0]) nextLanes.splice(idx, 0, { hash: parents[0], color: nodeColor });
-  else freeGraphColor(nodeColor);
-  const forks = [];
-  for (let p = 1; p < parents.length; p++) {
-    const color = allocGraphColor();
-    forks.push({ hash: parents[p], color, x: (nextLanes.length + forks.length) * laneW + laneW / 2 });
-  }
-
-  const width = Math.max(laneW, (nextLanes.length + forks.length) * laneW);
-  let svg = `<svg class="sol-exp-graph-svg" width="${width}" height="${rowH}">`;
-
-  // Lane transitions from the previous row (smooth S-curves).
-  state.commits.graphPrevLanes.forEach((pl, pi) => {
-    const ci = state.commits.graphLanes.findIndex((l) => l.hash === pl.hash);
-    if (ci !== -1 && ci !== pi) {
-      const x1 = pi * laneW + laneW / 2, x2 = ci * laneW + laneW / 2;
-      svg += `<path d="M ${x1} 0 C ${x1} ${rowH / 2}, ${x2} ${rowH / 2}, ${x2} ${rowH}" fill="none" stroke="${GRAPH_COLORS[pl.color % GRAPH_COLORS.length]}" stroke-width="2" opacity="0.7"/>`;
-    }
-  });
-
-  // Vertical lanes + this commit's node.
-  state.commits.graphLanes.forEach((lane, i) => {
-    const x = i * laneW + laneW / 2;
-    const color = GRAPH_COLORS[lane.color % GRAPH_COLORS.length];
-    if (i === idx) {
-      svg += `<line x1="${x}" y1="0" x2="${x}" y2="${rowH / 2 - nodeR}" stroke="${color}" stroke-width="2"/>`;
-      // Unpushed (local-only) commits: hollow node in the theme's primary label
-      // color (auto light/dark); pushed commits: solid lane color.
-      if (commit.unpushed) svg += `<circle cx="${x}" cy="${rowH / 2}" r="${nodeR + 1}" fill="none" stroke="var(--dsw-alias-label-primary,#d4d4d4)" stroke-width="2.5"/>`;
-      else svg += `<circle cx="${x}" cy="${rowH / 2}" r="${nodeR}" fill="${color}"/>`;
-      if (parents[0]) svg += `<line x1="${x}" y1="${rowH / 2 + nodeR}" x2="${x}" y2="${rowH}" stroke="${color}" stroke-width="2"/>`;
-      // Merge fork lines down to each additional parent's new lane.
-      for (const f of forks) {
-        svg += `<line x1="${x}" y1="${rowH / 2 + nodeR}" x2="${f.x}" y2="${rowH}" stroke="${GRAPH_COLORS[f.color % GRAPH_COLORS.length]}" stroke-width="2"/>`;
-      }
-    } else {
-      svg += `<line x1="${x}" y1="0" x2="${x}" y2="${rowH}" stroke="${color}" stroke-width="2" opacity="0.55"/>`;
-    }
-  });
-
-  svg += `</svg>`;
-  state.commits.graphPrevLanes = state.commits.graphLanes.slice();
-  state.commits.graphLanes = nextLanes;
-  for (const f of forks) state.commits.graphLanes.push({ hash: f.hash, color: f.color });
-  return svg;
-}
 // ── Commit detail cache (shared by inline expansion & tooltip) ──────────
 
 async function getCommitDetail(hash) {
@@ -660,11 +596,7 @@ window.__solExpBranchPublish = async (name) => {
   const result = await (await fetch("/solution-explorer/git-branch-publish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name }) })).json();
   if (!result.ok) alert(result.error?.message || "发布失败"); else await loadBranches();
 };
-function commitsListHTML() {
-					if (state.commits.commitsHTML === null) return "Loading...";
-					if (state.commits.commitsHTML === "") return t("scm.log.empty");
-					return state.commits.commitsHTML;
-				}
+
 				async function loadRecentCommits() {
 					console.log("[sol-exp] loadRecentCommits", Date.now());
 					if (!root || !state.scm.gitStatus || state.scm.gitStatus.branch === "unknown") return;
@@ -681,9 +613,9 @@ function commitsListHTML() {
 					// Release the in-flight guard — the fetch it protects is stale
 					// now and its response will be thrown away by the seq check.
 					state.commits.commitsLoading = false;
-					resetGraph();
+					resetGraph(state.commits);
 					const listEl = document.getElementById("sol-exp-commits-list");
-					if (listEl) listEl.innerHTML = commitsListHTML();
+					if (listEl) listEl.innerHTML = commitsListHTML(state.commits);
 					await loadCommitsPage();
 				}
 				async function loadCommitsPage() {
@@ -707,7 +639,7 @@ function commitsListHTML() {
 									state.commits.commitsAllLoaded = true;
 								} else {
 									const items = result.value.map((commit) => {
-										const graph = renderGraphRow(commit);
+										const graph = renderGraphRow(commit, state.commits);
 										const selected = state.commits.graphDetailOpen === commit.hash ? " selected" : "";
 										return `<div class="sol-exp-commit-item${selected}" data-hash="${commit.hash}" onclick="window.__solExpCommitDetail('${commit.hash}')"><span class="sol-exp-graph">${graph}</span><span class="sol-exp-commit-hash">${commit.shortHash}</span><span class="sol-exp-commit-msg">${escapeHtml(commit.message.substring(0, 60))}${commit.message.length > 60 ? "..." : ""}</span><span class="sol-exp-commit-date">${relTime(commit.timestamp)}</span></div>`;
 									}).join("");
@@ -903,7 +835,7 @@ async function doStage(files) {
 
 					let contentHTML = "";
 
-					if (currentTab === "scm") contentHTML = '<div class="sol-exp-scm-host" data-sol-exp-scm-host>' + buildSCMContent() + '</div>';
+					if (currentTab === "scm") contentHTML = '<div class="sol-exp-scm-host" data-sol-exp-scm-host>' + buildSCMContent(state.scm, state.commits, root) + '</div>';
 
 					else if (currentTab === "search") contentHTML = buildSearchContent(state.search, state.tree, root);
 
@@ -931,257 +863,11 @@ async function doStage(files) {
 				// changes + staged). Extracted so a git-status refresh can
 				// update ONLY this region, leaving the repository/commits half
 				// (and its scroll/loading state) untouched.
-				function buildSCMTopHTML() {
+				
 
-					const status = state.scm.gitStatus;
+				
 
-					const staged = status?.staged || [];
-
-					const unstaged = status?.unstaged || [];
-
-					const untracked = status?.untracked || [];
-
-					const allChanges = [...unstaged, ...untracked];
-
-					const conflicts = status?.conflicts || [];
-
-					let topHTML = "";
-
-					if (conflicts.length > 0) topHTML += `
-
-        <div class="sol-exp-scm-section${state.scm.collapsedSections.has("conflicts") ? " collapsed" : ""}" data-section="conflicts">
-
-          <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('conflicts')"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" style="transform:rotate(90deg)"><path d="M4.25 2.82782L4.25 11.1722C4.25 11.6622 4.84243 11.9076 5.18891 11.5611L9.36109 7.38891C9.57588 7.17412 9.57588 6.82588 9.36109 6.61109L5.18891 2.43891C4.84243 2.09243 4.25 2.33782 4.25 2.82782Z"/></svg>${t("scm.merge.changes")}<span class="sol-exp-scm-header-actions"></span><span class="sol-exp-scm-section-count">${conflicts.length}</span></div>
-
-          ${conflicts.map((item) => buildSCMItem(item, "conflicts")).join("")}
-
-        </div>
-
-      `;
-
-					topHTML += `
-
-        <div class="sol-exp-commit-box">
-
-          <textarea class="sol-exp-commit-input" placeholder="${t("scm.commit.placeholder")}${status?.branch && status?.branch !== "unknown" ? " (" + status.branch + ")" : ""}" oninput="window.__solExpCommitMsg(this.value)">${escapeHtml(state.scm.commitMessage)}</textarea>
-
-          <div class="sol-exp-commit-row">
-
-            <button class="sol-exp-commit-btn" onclick="window.__solExpCommit()" ${state.scm.committing || !state.scm.commitMessage.trim() ? "disabled" : ""}>${state.scm.committing ? t("scm.committing") : t("scm.commit.button")}</button>
-
-          </div>
-
-        </div>
-
-      `;
-
-					topHTML += `
-
-        <div class="sol-exp-scm-section${state.scm.collapsedSections.has("changes") ? " collapsed" : ""}" data-section="changes">
-
-          <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('changes')"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" style="transform:rotate(90deg)"><path d="M4.25 2.82782L4.25 11.1722C4.25 11.6622 4.84243 11.9076 5.18891 11.5611L9.36109 7.38891C9.57588 7.17412 9.57588 6.82588 9.36109 6.61109L5.18891 2.43891C4.84243 2.09243 4.25 2.33782 4.25 2.82782Z"/></svg>${t("scm.changes")}<span class="sol-exp-scm-header-actions">
-
-            <button class="sol-exp-hdr-btn" title="${t("scm.refresh")}" onclick="event.stopPropagation();window.__solExpRefreshSCM()"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.61-3.89"/><path d="M13.5 3.5V7H10"/></svg></button>
-
-            ${allChanges.length > 0 ? `<button class="sol-exp-hdr-btn" title="${t("scm.stageAll")}" onclick="event.stopPropagation();window.__solExpStageAll()"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 2v12M2 8h12"/></svg></button>` : ""}
-
-            ${allChanges.length > 0 ? `<button class="sol-exp-hdr-btn danger" title="${t("scm.discardAll")}" onclick="event.stopPropagation();window.__solExpDiscardAll()"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3l10 10M13 3L3 13"/></svg></button>` : ""}
-
-          </span><span class="sol-exp-scm-section-count">${allChanges.length}</span></div>
-
-          ${allChanges.length === 0 ? `<div style="padding:4px 12px 8px 24px;font-size:12px;color:var(--dsw-alias-label-tertiary,#6e6e6e)">${t("scm.changes.none")}</div>` : ""}
-
-          ${allChanges.map((item) => buildSCMItem(item, "changes")).join("")}
-
-        </div>
-
-      `;
-
-					if (staged.length > 0) topHTML += `
-
-          <div class="sol-exp-scm-section${state.scm.collapsedSections.has("staged") ? " collapsed" : ""}" data-section="staged">
-
-            <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('staged')"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" style="transform:rotate(90deg)"><path d="M4.25 2.82782L4.25 11.1722C4.25 11.6622 4.84243 11.9076 5.18891 11.5611L9.36109 7.38891C9.57588 7.17412 9.57588 6.82588 9.36109 6.61109L5.18891 2.43891C4.84243 2.09243 4.25 2.33782 4.25 2.82782Z"/></svg>${t("scm.staged")}<span class="sol-exp-scm-header-actions">
-
-              <button class="sol-exp-hdr-btn" title="${t("scm.unstageAll")}" onclick="event.stopPropagation();window.__solExpUnstageAll()"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 14V3M3.5 7.5L8 3l4.5 4.5"/></svg></button>
-
-            </span><span class="sol-exp-scm-section-count">${staged.length}</span></div>
-
-            ${staged.map((item) => buildSCMItem(item, "staged")).join("")}
-
-          </div>
-
-        `;
-
-					return topHTML;
-
-				}
-
-				function buildSCMContent() {
-
-					if (!root) return `<div class="sol-exp-content"><div class="sol-exp-empty">${t("panel.empty")}</div></div>`;
-
-					const status = state.scm.gitStatus;
-
-					const isRepo = status && status.branch !== "unknown";
-
-					const staged = status?.staged || [];
-
-					const unstaged = status?.unstaged || [];
-
-					const untracked = status?.untracked || [];
-
-					const allChanges = [...unstaged, ...untracked];
-
-					if (!isRepo) return `<div class="sol-exp-content"><div class="sol-exp-empty">${t("scm.notRepo")}</div><div style="padding:12px;text-align:center"><button class="sol-exp-commit-btn" style="width:auto;padding:6px 16px" onclick="window.__solExpGitInit()">${t("scm.init.button")}</button></div></div>`;
-
-					let topHTML = "";
-					let bottomHTML = "";
-
-					const conflicts = status?.conflicts || [];
-
-					if (conflicts.length > 0) topHTML += `
-
-        <div class="sol-exp-scm-section${state.scm.collapsedSections.has("conflicts") ? " collapsed" : ""}" data-section="conflicts">
-
-          <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('conflicts')"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" style="transform:rotate(90deg)"><path d="M4.25 2.82782L4.25 11.1722C4.25 11.6622 4.84243 11.9076 5.18891 11.5611L9.36109 7.38891C9.57588 7.17412 9.57588 6.82588 9.36109 6.61109L5.18891 2.43891C4.84243 2.09243 4.25 2.33782 4.25 2.82782Z"/></svg>${t("scm.merge.changes")}<span class="sol-exp-scm-header-actions"></span><span class="sol-exp-scm-section-count">${conflicts.length}</span></div>
-
-          ${conflicts.map((item) => buildSCMItem(item, "conflicts")).join("")}
-
-        </div>
-
-      `;
-
-					topHTML += `
-
-        <div class="sol-exp-commit-box">
-
-          <textarea class="sol-exp-commit-input" placeholder="${t("scm.commit.placeholder")}${status?.branch && status.branch !== "unknown" ? " (" + status.branch + ")" : ""}" oninput="window.__solExpCommitMsg(this.value)">${escapeHtml(state.scm.commitMessage)}</textarea>
-
-          <div class="sol-exp-commit-row">
-
-            <button class="sol-exp-commit-btn" onclick="window.__solExpCommit()" ${state.scm.committing || !state.scm.commitMessage.trim() ? "disabled" : ""}>${state.scm.committing ? t("scm.committing") : t("scm.commit.button")}</button>
-
-          </div>
-
-
-
-        </div>
-
-      `;
-
-					topHTML += `
-
-        <div class="sol-exp-scm-section${state.scm.collapsedSections.has("changes") ? " collapsed" : ""}" data-section="changes">
-
-          <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('changes')"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" style="transform:rotate(90deg)"><path d="M4.25 2.82782L4.25 11.1722C4.25 11.6622 4.84243 11.9076 5.18891 11.5611L9.36109 7.38891C9.57588 7.17412 9.57588 6.82588 9.36109 6.61109L5.18891 2.43891C4.84243 2.09243 4.25 2.33782 4.25 2.82782Z"/></svg>${t("scm.changes")}<span class="sol-exp-scm-header-actions">
-
-            <button class="sol-exp-hdr-btn" title="${t("scm.refresh")}" onclick="event.stopPropagation();window.__solExpRefreshSCM()"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.61-3.89"/><path d="M13.5 3.5V7H10"/></svg></button>
-
-            ${allChanges.length > 0 ? `<button class="sol-exp-hdr-btn" title="${t("scm.stageAll")}" onclick="event.stopPropagation();window.__solExpStageAll()"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 2v12M2 8h12"/></svg></button>` : ""}
-
-            ${allChanges.length > 0 ? `<button class="sol-exp-hdr-btn danger" title="${t("scm.discardAll")}" onclick="event.stopPropagation();window.__solExpDiscardAll()"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3l10 10M13 3L3 13"/></svg></button>` : ""}
-
-          </span><span class="sol-exp-scm-section-count">${allChanges.length}</span></div>
-
-          ${allChanges.length === 0 ? `<div style="padding:4px 12px 8px 24px;font-size:12px;color:var(--dsw-alias-label-tertiary,#6e6e6e)">${t("scm.changes.none")}</div>` : ""}
-
-          ${allChanges.map((item) => buildSCMItem(item, "changes")).join("")}
-
-        </div>
-
-      `;
-
-					if (staged.length > 0) topHTML += `
-
-          <div class="sol-exp-scm-section${state.scm.collapsedSections.has("staged") ? " collapsed" : ""}" data-section="staged">
-
-            <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('staged')"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" style="transform:rotate(90deg)"><path d="M4.25 2.82782L4.25 11.1722C4.25 11.6622 4.84243 11.9076 5.18891 11.5611L9.36109 7.38891C9.57588 7.17412 9.57588 6.82588 9.36109 6.61109L5.18891 2.43891C4.84243 2.09243 4.25 2.33782 4.25 2.82782Z"/></svg>${t("scm.staged")}<span class="sol-exp-scm-header-actions">
-
-              <button class="sol-exp-hdr-btn" title="${t("scm.unstageAll")}" onclick="event.stopPropagation();window.__solExpUnstageAll()"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 14V3M3.5 7.5L8 3l4.5 4.5"/></svg></button>
-
-            </span><span class="sol-exp-scm-section-count">${staged.length}</span></div>
-
-            ${staged.map((item) => buildSCMItem(item, "staged")).join("")}
-
-          </div>
-
-        `;
-
-					bottomHTML += `
-
-        <div class="sol-exp-scm-section${state.scm.collapsedSections.has("repository") ? " collapsed" : ""}" data-section="repository">
-
-          <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('repository')"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" style="transform:rotate(90deg)"><path d="M4.25 2.82782L4.25 11.1722C4.25 11.6622 4.84243 11.9076 5.18891 11.5611L9.36109 7.38891C9.57588 7.17412 9.57588 6.82588 9.36109 6.61109L5.18891 2.43891C4.84243 2.09243 4.25 2.33782 4.25 2.82782Z"/></svg>${t("scm.repository")}<span class="sol-exp-scm-header-actions">
-            <button class="sol-exp-hdr-btn" title="${t("scm.sync.fetch")}" onclick="event.stopPropagation();window.__solExpFetch()"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v10M4 8l4 4 4-4"/></svg></button>
-            <button class="sol-exp-hdr-btn" title="${t("scm.sync.pull")}" onclick="event.stopPropagation();window.__solExpPull()"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v10M4 8l4 4 4-4"/><path d="M2 14h12"/></svg></button>
-            <button class="sol-exp-hdr-btn" title="${t("scm.sync.push")}" onclick="event.stopPropagation();window.__solExpPush()"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12V2M4 6l4-4 4 4"/></svg></button>
-            <button class="sol-exp-hdr-btn" title="${t("scm.sync.sync")}" onclick="event.stopPropagation();window.__solExpSync()"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8a6 6 0 0 1 10.47-4.02L14 5.5M14 8a6 6 0 0 1-10.47 4.02L2 10.5"/></svg></button>
-          </span><span class="sol-exp-scm-section-count">${(status?.ahead || 0) > 0 || (status?.behind || 0) > 0 ? `↑${status?.ahead || 0} ↓${status?.behind || 0}` : ""}</span></div>
-
-          <div style="padding:4px 12px 8px 24px;display:flex;flex-direction:column">
-
-            ${state.scm.repos.map((r) => `<div class="sol-exp-repo-item ${state.scm.activeRepo === r.path ? "active" : ""}" data-repo-path="${r.path.replace(/"/g, "&quot;")}" onclick="window.__solExpSelectRepo('${r.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')"><span class="sol-exp-repo-icon">⑂</span><span class="sol-exp-repo-name">${r.name}</span><span class="sol-exp-repo-branch">${r.branch}</span><span class="sol-exp-hdr-btn" title="${t("scm.remote.title")}" onclick="event.stopPropagation();window.__solExpRemotePanel()"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M6.5 9.5a3 3 0 0 0 4.24 0l2-2a3 3 0 0 0-4.24-4.24l-1 1"/><path d="M9.5 6.5a3 3 0 0 0-4.24 0l-2 2a3 3 0 0 0 4.24 4.24l1-1"/></svg></button></span><span class="sol-exp-hdr-btn" title="${t("scm.branch.title")}" onclick="event.stopPropagation();window.__solExpBranchPanel()"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="3.5" r="1.5"/><circle cx="5" cy="12.5" r="1.5"/><circle cx="11.5" cy="7" r="1.5"/><path d="M5 5v5.5M11.5 8.5c0 2.2-1.3 3-4.2 3"/></svg></button></span></div>`).join("")}<div style="font-size:12px;color:var(--dsw-alias-label-secondary);margin-bottom:6px">${t("scm.repository.branch")}</div><span class="sol-exp-branch-pill">⑂ ${status?.branch || ""}</span>
-
-            ${state.scm.remotePanelOpen ? `<div style="margin:6px 0;padding:8px;border:1px solid var(--dsw-alias-border-l2,#333);border-radius:6px;font-size:12px"><div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><b>${t("scm.remote.title")}</b><span style="flex:1"></span><button class="sol-exp-commit-detail-close" onclick="window.__solExpRemotePanel()">✕</button></div>${state.scm.remotesList.length === 0 ? `<div style="color:var(--dsw-alias-label-tertiary,#6e6e6e);padding:2px 0 6px">${t("scm.remote.none")}</div>` : state.scm.remotesList.map((r) => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="flex:none;font-weight:600">${escapeHtml(r.name)}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary,#969696)">${escapeHtml(r.url)}</span><button class="sol-exp-commit-detail-btn" onclick="window.__solExpRemoteSetUrl('${r.name.replace(/'/g, "\\'")}')">${t("scm.remote.setUrl")}</button><button class="sol-exp-commit-detail-btn" onclick="window.__solExpRemoteRemove('${r.name.replace(/'/g, "\\'")}')">${t("scm.remote.remove")}</button></div>`).join("")}<div style="display:flex;gap:6px;margin-top:8px"><input class="sol-exp-commit-input" style="min-height:0;height:26px;flex:1" placeholder="${t("scm.remote.name")}" value="${escapeHtml(state.scm.remoteName)}" oninput="window.__solExpRemoteName(this.value)"/><input class="sol-exp-commit-input" style="min-height:0;height:26px;flex:2" placeholder="${t("scm.remote.url")} (https://… 或 git@…)" value="${escapeHtml(state.scm.remoteUrl)}" oninput="window.__solExpRemoteUrl(this.value)"/><button class="sol-exp-commit-detail-btn" onclick="window.__solExpRemoteAdd()">${t("scm.remote.addBtn")}</button></div></div>` : ""}
-
-            ${state.scm.branchPanelOpen ? `<div style="margin:6px 0;padding:8px;border:1px solid var(--dsw-alias-border-l2,#333);border-radius:6px;font-size:12px"><div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><b>${t("scm.branch.title")}</b><span style="flex:1"></span><button class="sol-exp-commit-detail-close" onclick="window.__solExpBranchPanel()">✕</button></div><div style="color:var(--dsw-alias-label-tertiary,#6e6e6e);margin:2px 0">${t("scm.branch.local")}</div>${state.scm.branchesList.filter((b) => !b.isRemote).map((b) => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer" onclick="window.__solExpBranchCheckout('${b.name.replace(/'/g, "\\'")}')"><span style="flex:none;width:14px">${b.current ? "➤" : ""}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${b.current ? "font-weight:600;color:var(--dsw-alias-label-primary)" : ""}">${escapeHtml(b.name)}</span><span style="flex:none;font-size:10px;color:var(--dsw-alias-label-tertiary,#6e6e6e);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${b.shortHash ? b.shortHash + " " : ""}${escapeHtml((b.subject || "").substring(0, 24))}</span>${b.upstream ? `<span style="flex:none;font-size:10px;color:var(--dsw-alias-label-tertiary,#6e6e6e)">${escapeHtml(b.upstream)}</span>` : ""}<button class="sol-exp-commit-detail-btn" style="padding:1px 5px" title="${t("scm.branch.rename")}" onclick="event.stopPropagation();window.__solExpBranchRename('${b.name.replace(/'/g, "\\'")}')">✎</button>${!b.current ? `<button class="sol-exp-commit-detail-btn" style="padding:1px 5px" title="${t("scm.branch.merge")}" onclick="event.stopPropagation();window.__solExpBranchMerge('${b.name.replace(/'/g, "\\'")}')">⤵</button><button class="sol-exp-commit-detail-btn" style="padding:1px 5px" title="${t("scm.branch.publish")}" onclick="event.stopPropagation();window.__solExpBranchPublish('${b.name.replace(/'/g, "\\'")}')">↑</button><button class="sol-exp-commit-detail-btn" style="padding:1px 5px" title="${t("scm.branch.delete")}" onclick="event.stopPropagation();window.__solExpBranchDelete('${b.name.replace(/'/g, "\\'")}')">✕</button>` : ""}</div>`).join("")}<div style="color:var(--dsw-alias-label-tertiary,#6e6e6e);margin:4px 0 2px">${t("scm.branch.remote")}</div>${state.scm.branchesList.filter((b) => b.isRemote).map((b) => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer" onclick="window.__solExpBranchCheckout('${b.name.replace(/'/g, "\\'")}', true)"><span style="flex:none;width:14px"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary,#969696)">${escapeHtml(b.name)}</span><span style="flex:none;font-size:10px;color:var(--dsw-alias-label-tertiary,#6e6e6e);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${b.shortHash ? b.shortHash + " " : ""}${escapeHtml((b.subject || "").substring(0, 24))}</span></div>`).join("")}${state.scm.tagsList.length > 0 ? `<div style="color:var(--dsw-alias-label-tertiary,#6e6e6e);margin:4px 0 2px">${t("scm.branch.tags")}</div>${state.scm.tagsList.map((tg) => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="flex:none;width:14px"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary,#969696)">${escapeHtml(tg.name)}</span><span style="flex:none;font-size:10px;color:var(--dsw-alias-label-tertiary,#6e6e6e);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${tg.commitHash ? escapeHtml((tg.subject || "").substring(0, 24)) : ""}</span></div>`).join("")}` : ""}<div style="display:flex;gap:6px;margin-top:8px"><input class="sol-exp-commit-input" style="min-height:0;height:26px;flex:1" placeholder="${t("scm.branch.name")}" value="${escapeHtml(state.scm.branchName)}" oninput="window.__solExpBranchName(this.value)"/><input class="sol-exp-commit-input" style="min-height:0;height:26px;flex:1" placeholder="${t("scm.branch.from")}" value="${escapeHtml(state.scm.branchFrom)}" oninput="window.__solExpBranchFrom(this.value)"/><button class="sol-exp-commit-detail-btn" onclick="window.__solExpBranchCreate()">${t("scm.branch.createBtn")}</button></div></div>` : ""}
-
-          </div>
-
-        </div>
-
-        <div class="sol-exp-scm-section${state.scm.collapsedSections.has("commits") ? " collapsed" : ""}" data-section="commits">
-
-          <div class="sol-exp-scm-section-header" onclick="window.__solExpToggleSection('commits')"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" style="transform:rotate(90deg)"><path d="M4.25 2.82782L4.25 11.1722C4.25 11.6622 4.84243 11.9076 5.18891 11.5611L9.36109 7.38891C9.57588 7.17412 9.57588 6.82588 9.36109 6.61109L5.18891 2.43891C4.84243 2.09243 4.25 2.33782 4.25 2.82782Z"/></svg>${t("scm.repository.commits")}<span class="sol-exp-scm-header-actions"></span><span class="sol-exp-scm-section-count"></span></div>
-
-          <div style="padding:4px 12px 8px 24px;flex:1;min-height:0;display:flex;flex-direction:column">
-
-            <div id="sol-exp-commits-list" style="margin-top:6px;font-size:12px;color:var(--dsw-alias-label-tertiary);flex:1;min-height:0;overflow-y:auto" onscroll="window.__solExpCommitsScroll(event)">${commitsListHTML()}</div>
-
-          </div>
-
-        </div>
-
-      `;
-
-					return `<div class="sol-exp-content"><div class="sol-exp-scm-split"><div class="sol-exp-scm-top" style="flex-basis:${state.scm.scmSplit}%">${topHTML}</div><div class="sol-exp-scm-divider" onpointerdown="window.__solExpScmDividerDown(event)"></div><div class="sol-exp-scm-bottom" style="flex-basis:${100 - state.scm.scmSplit}%">${bottomHTML}</div></div></div>`;
-
-				}
-
-				function buildSCMItem(item, section) {
-
-					const pathJs = item.path.replace(/'/g, "\\'");
-
-					const action = section === "staged" ? `<button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpUnstage(['${pathJs}'])" title="${t("scm.unstage")}">◦</button>` : section === "conflicts" ? `<button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpStage(['${pathJs}'])" title="标记为已解决">✓</button>` : `<button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpStage(['${pathJs}'])" title="${t("scm.stage")}">+</button>
-
-           <button class="sol-exp-scm-action-btn" onclick="event.stopPropagation();window.__solExpDiscard(['${pathJs}'])" title="${t("scm.discard")}">✕</button>`;
-
-					const staged = section === "staged";
-
-					// A trailing slash marks an untracked directory entry (a folder
-					// whose contents are all ignored) — reveal it in the tree.
-					const isDir = item.path.endsWith("/") || item.path.endsWith("\\");
-
-					// Images open in the editor's image preview (same as the file
-					// tree); everything else opens the diff view.
-					const openJs = isDir ? `window.__solExpSelectFile('${pathJs}', true)` : isImageFile(item.path) ? `window.__solExpOpenFile('${pathJs}')` : `window.__solExpOpenDiff('${pathJs}', ${staged})`;
-
-					return `
-
-        <div class="sol-exp-scm-item" title="${t("file.open")}" onclick="${openJs}">
-
-          <span class="sol-exp-file-icon">${isDir ? folderIcon(false) : fileIcon(item.path)}</span>
-
-          <span class="sol-exp-scm-path">${escapeHtml(item.path)}</span>
-
-          <span class="sol-exp-scm-actions">${action}</span>
-
-        </div>
-
-      `;
-
-				}
+				
 
 				// ─── File-type icons (VS Code style, inline SVG) ────────────────
 				// Type colors are content colors (like diff +/- and git status hues),
