@@ -17,7 +17,7 @@ export interface Deps {
   state: AppState
   render: () => void
   /** Injected cross-domain capability (SCM status refresh). */
-  loadGitStatus?: () => Promise<void>
+  loadGitStatus?: (deps?: any) => Promise<void>
 }
 
 export async function loadTree({ state, render }: Deps) {
@@ -403,7 +403,7 @@ export function registerTreeBridges(deps: Deps): () => void {
     // place; only the very first load falls back to the full loading path.
     if (state.tree.treeState) refreshTreeSilent(deps);
     else loadTree(deps);
-    deps.loadGitStatus?.();
+    deps.loadGitStatus?.(deps);
   };
 
   return () => {

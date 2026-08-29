@@ -36,6 +36,8 @@ import { resetGraph, commitsListHTML, renderGraphRow } from "./scm/graph.ts"
 
 import { getCommitDetail, ensureCommitDetailInline, reapplyCommitDetailInline, hideCommitTooltip, scheduleHideCommitTooltip, cancelHideCommitTooltip, showCommitTooltip, loadRecentCommits, loadCommitsPage } from "./scm/history.ts"
 
+import { loadGitStatus, loadRepos, doStage, doUnstage, doDiscard, doCommit } from "./scm/actions.ts"
+
 export function mountPanel(ctx: ClientContext): void {
 			ctx.effect(() => {
 
@@ -128,25 +130,13 @@ export function mountPanel(ctx: ClientContext): void {
 				// current tree untouched.
 				
 
-				async function loadRepos() {
-					if (!root) return;
-					try {
-						const result = await (await fetch(`/solution-explorer/git-repos?root=${encodeURIComponent(root)}`)).json();
-						if (result.ok && Array.isArray(result.value)) {
-							state.scm.repos = result.value;
-							if (!state.scm.activeRepo || !state.scm.repos.some((r) => r.path === state.scm.activeRepo)) {
-								state.scm.activeRepo = state.scm.repos[0]?.path || root;
-							}
-							render();
-						}
-					} catch (err) { console.error("Failed to load repos:", err); }
-				}
+				
 				window.__solExpSelectRepo = (path) => {
 					if (!path || path === state.scm.activeRepo) return;
 					state.scm.activeRepo = path;
 					state.commits.commitDetailCache.clear();
 					state.commits.remotesResolved = false;
-					loadGitStatus();
+					loadGitStatus(actionsDeps);
 					loadRecentCommits(historyDeps);
 					// Update the repository selection highlight and the change
 					// list in place (loadGitStatus no longer re-renders).
@@ -158,104 +148,7 @@ export function mountPanel(ctx: ClientContext): void {
 						if (scmTop) scmTop.innerHTML = buildSCMTopHTML(state.scm);
 					}
 				};
-async function loadGitStatus() {
 
-					if (!root) return;
-
-					const hadStatus = !!state.scm.gitStatus;
-
-					try {
-
-						const result = await (await fetch(`/solution-explorer/git-status?root=${encodeURIComponent(gitRoot())}`)).json();
-
-						if (result.ok) {
-
-							const prev = state.scm.gitStatus;
-
-							state.scm.gitStatus = result.value;
-
-							state.scm.gitChangesCount = (result.value.staged?.length || 0) + (result.value.unstaged?.length || 0) + (result.value.untracked?.length || 0);
-
-							// Remember whether the UI-relevant status changed. Only
-							// the branch and the change lists drive the SCM view;
-							// ignored/ahead/behind may jitter between polls and
-							// must not force a rebuild (which would interrupt a
-							// divider drag).
-							state.scm.gitStatusChanged = prev === null
-								|| JSON.stringify([prev.branch, prev.staged, prev.unstaged, prev.untracked, prev.conflicts])
-								!== JSON.stringify([state.scm.gitStatus.branch, state.scm.gitStatus.staged, state.scm.gitStatus.unstaged, state.scm.gitStatus.untracked, state.scm.gitStatus.conflicts]);
-
-							// Detect a HEAD change (external commit or checkout) and reload the commit
-							// history so a command-line git commit shows up without a manual refresh.
-							const head = typeof state.scm.gitStatus.head === "string" ? state.scm.gitStatus.head : "";
-							if (head && head !== state.scm.lastHeadHash) {
-								state.scm.lastHeadHash = head;
-								if (hadStatus && currentTab === "scm") loadRecentCommits(historyDeps);
-							}
-
-							// Update the sync counter (↑ahead ↓behind) in place when
-							// it changed — e.g. after a command-line git commit —
-							// without rebuilding the repository section.
-							if (hadStatus && activeEl && (prev?.ahead !== state.scm.gitStatus.ahead || prev?.behind !== state.scm.gitStatus.behind)) {
-								const repoCount = activeEl.querySelector('.sol-exp-scm-section[data-section="repository"] .sol-exp-scm-section-count');
-								if (repoCount) {
-									const a = state.scm.gitStatus.ahead || 0;
-									const b = state.scm.gitStatus.behind || 0;
-									repoCount.textContent = (a > 0 || b > 0) ? `↑${a} ↓${b}` : "";
-								}
-							}
-
-						}
-
-					} catch {}
-
-					// First load renders the panel; later loads update only
-					// the SCM region and the badge, leaving the tree alone.
-					if (!hadStatus) render();
-
-					else if (state.scm.gitStatusChanged && activeEl) {
-
-						const scmHost = activeEl.querySelector("[data-sol-exp-scm-host]");
-
-						if (scmHost && currentTab === "scm") {
-
-							// Update only the change-list half; the repository
-							// half (commits list, scroll state) stays untouched.
-							// Compare before writing so an unchanged region is
-							// never repainted, even if the change flag jitters.
-							const scmTop = scmHost.querySelector(".sol-exp-scm-top");
-
-							if (scmTop) {
-
-								const html = buildSCMTopHTML(state.scm);
-
-								if (scmTop.innerHTML !== html) {
-
-									console.log("[sol-exp] rebuild scm top", Date.now());
-
-									scmTop.innerHTML = html;
-
-								}
-
-							}
-
-						}
-
-						const badge = activeEl.querySelector(".sol-exp-activity-badge");
-
-						if (badge) {
-
-							if (state.scm.gitChangesCount > 0) badge.textContent = String(state.scm.gitChangesCount);
-
-							else badge.remove();
-
-						}
-
-					}
-
-					if (!hadStatus && state.scm.gitStatus && state.scm.gitStatus.branch !== "unknown") loadRecentCommits(historyDeps);
-
-				}
 
 const GRAPH_COLORS = ["#e2b714", "#4ec9b0", "#58a6ff", "#d2a8ff", "#ff7b72", "#79c0ff", "#7ee787", "#ffa657"];
 
@@ -322,7 +215,7 @@ window.__solExpCommitCheckout = async (hash) => {
   if (!ok) return;
   const result = await (await fetch("/solution-explorer/git-branch-checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name: hash }) })).json();
   if (!result.ok) alert(result.error?.message || "切换失败");
-  else { await loadGitStatus(); await loadRecentCommits(historyDeps); }
+  else { await loadGitStatus(actionsDeps); await loadRecentCommits(historyDeps); }
 };
 async function loadRemotes() {
   const result = await (await fetch(`/solution-explorer/git-remotes?root=${encodeURIComponent(gitRoot())}`)).json();
@@ -340,13 +233,13 @@ window.__solExpGitInit = async () => {
   if (!(await showConfirm({ title: t("scm.init.button"), message: t("scm.init.confirm"), okText: t("scm.init.button") }))) return;
   const result = await (await fetch("/solution-explorer/git-init", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot() }) })).json();
   if (!result.ok) alert(result.error?.message || "初始化失败");
-  else { await loadRepos(); await loadGitStatus(); window.__solExpRefresh(); }
+  else { await loadRepos(actionsDeps); await loadGitStatus(actionsDeps); window.__solExpRefresh(); }
 };
 window.__solExpFetch = async () => {
   const result = await (await fetch("/solution-explorer/git-fetch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot() }) })).json();
   if (!result.ok) showToast(result.error?.message || "抓取失败", true);
   else {
-    await loadGitStatus(); await loadBranches();
+    await loadGitStatus(actionsDeps); await loadBranches();
     const out = (result.value || "").trim();
     showToast(out ? t("scm.sync.fetch") + ":\n" + out : t("scm.sync.upToDate"));
   }
@@ -356,7 +249,7 @@ window.__solExpPull = async () => {
   const result = await (await fetch("/solution-explorer/git-pull", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot() }) })).json();
   if (!result.ok) showToast(result.error?.message || "拉取失败", true);
   else {
-    await loadGitStatus(); await loadRecentCommits(historyDeps);
+    await loadGitStatus(actionsDeps); await loadRecentCommits(historyDeps);
     const out = (result.value || "").trim();
     showToast(out ? t("scm.sync.pull") + ":\n" + out : t("scm.sync.upToDate"));
   }
@@ -366,7 +259,7 @@ window.__solExpPush = async () => {
   const result = await (await fetch("/solution-explorer/git-push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot() }) })).json();
   if (!result.ok) showToast(result.error?.message || "推送失败", true);
   else {
-    await loadGitStatus();
+    await loadGitStatus(actionsDeps);
     const out = (result.value || "").trim();
     showToast(out ? t("scm.sync.push") + ":\n" + out : t("scm.sync.done"));
   }
@@ -376,7 +269,7 @@ window.__solExpSync = async () => {
   const result = await (await fetch("/solution-explorer/git-sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot() }) })).json();
   if (!result.ok) showToast(result.error?.message || "同步失败", true);
   else {
-    await loadGitStatus(); await loadRecentCommits(historyDeps);
+    await loadGitStatus(actionsDeps); await loadRecentCommits(historyDeps);
     const out = (result.value || "").trim();
     showToast(out ? t("scm.sync.sync") + ":\n" + out : t("scm.sync.done"));
   }
@@ -419,7 +312,7 @@ window.__solExpBranchCheckout = async (name, isRemote) => {
     // Order matters: update state, rebuild the DOM, then load commits into the
     // fresh list node — loading before render() lets render wipe the result
     // and leave the history stuck on "Loading…".
-    await loadGitStatus();
+    await loadGitStatus(actionsDeps);
     await loadBranches();
     render();
     await loadRecentCommits(historyDeps);
@@ -446,7 +339,7 @@ window.__solExpBranchRename = async (name) => {
 window.__solExpBranchMerge = async (name) => {
   if (!(await showConfirm({ title: t("scm.branch.title"), message: t("scm.branch.mergeConfirm").replace("{name}", name), okText: t("scm.branch.merge") }))) return;
   const result = await (await fetch("/solution-explorer/git-branch-merge", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ root: gitRoot(), name }) })).json();
-  if (!result.ok) alert(result.error?.message || "合并失败"); else { await loadGitStatus(); await loadRecentCommits(historyDeps); }
+  if (!result.ok) alert(result.error?.message || "合并失败"); else { await loadGitStatus(actionsDeps); await loadRecentCommits(historyDeps); }
 };
 window.__solExpBranchPublish = async (name) => {
   if (!(await showConfirm({ title: t("scm.branch.title"), message: t("scm.branch.publishConfirm").replace("{name}", name), okText: t("scm.branch.publish") }))) return;
@@ -462,127 +355,13 @@ window.__solExpBranchPublish = async (name) => {
 						loadCommitsPage(historyDeps);
 					}
 				};
-async function doStage(files) {
 
-					if (!root) return;
 
-					await fetch("/solution-explorer/git-stage", {
+				
 
-						method: "POST",
+				
 
-						headers: { "Content-Type": "application/json" },
-
-						body: JSON.stringify({
-
-							root: gitRoot(),
-														files
-
-						})
-
-					});
-
-					await loadGitStatus();
-
-				}
-
-				async function doUnstage(files) {
-
-					if (!root) return;
-
-					await fetch("/solution-explorer/git-unstage", {
-
-						method: "POST",
-
-						headers: { "Content-Type": "application/json" },
-
-						body: JSON.stringify({
-
-							root: gitRoot(),
-														files
-
-						})
-
-					});
-
-					await loadGitStatus();
-
-				}
-
-				async function doDiscard(files) {
-
-					if (!root) return;
-
-					await fetch("/solution-explorer/git-discard", {
-
-						method: "POST",
-
-						headers: { "Content-Type": "application/json" },
-
-						body: JSON.stringify({
-
-							root: gitRoot(),
-														files
-
-						})
-
-					});
-
-					await loadGitStatus();
-
-					await loadTree({ state, render });
-
-				}
-
-				async function doCommit() {
-
-					if (!root || !state.scm.commitMessage.trim()) return;
-
-					state.scm.committing = true;
-
-					render();
-
-					try {
-
-						const result = await (await fetch("/solution-explorer/git-commit", {
-
-							method: "POST",
-
-							headers: { "Content-Type": "application/json" },
-
-							body: JSON.stringify({
-
-								root: gitRoot(),
-															message: state.scm.commitMessage.trim()
-
-							})
-
-						})).json();
-
-						if (result.ok) {
-
-							state.scm.commitMessage = "";
-
-							await loadGitStatus();
-
-							await loadTree({ state, render });
-
-						} else alert(t("scm.commitFailed") + ": " + (result.error?.message || ""));
-
-					} catch (err) {
-
-						alert(t("scm.commitFailed") + ": " + err.message);
-
-					}
-
-					state.scm.committing = false;
-
-					render();
-
-					console.log("[sol-exp] doCommit -> loadRecentCommits", Date.now());
-
-					await loadRecentCommits(historyDeps);
-
-				}
+				
 
 				
 
@@ -691,7 +470,7 @@ async function doStage(files) {
 						// Reload status and commit history when the SCM tab
 						// opens — the commit list is only populated here and
 						// on explicit refresh, never by background polling.
-						loadGitStatus();
+						loadGitStatus(actionsDeps);
 
 						loadRecentCommits(historyDeps);
 
@@ -719,7 +498,7 @@ async function doStage(files) {
 				window.__solExpRefreshSCM = () => {
 
 					// Silent refresh: re-render only the SCM region, no flash.
-					loadGitStatus();
+					loadGitStatus(actionsDeps);
 
 					loadRecentCommits(historyDeps);
 
@@ -740,25 +519,25 @@ async function doStage(files) {
 
 				window.__solExpCommit = () => {
 
-					doCommit();
+					doCommit(actionsDeps);
 
 				};
 
 				window.__solExpStage = (files) => {
 
-					doStage(files);
+					doStage(files, actionsDeps);
 
 				};
 
 				window.__solExpUnstage = (files) => {
 
-					doUnstage(files);
+					doUnstage(files, actionsDeps);
 
 				};
 
 				window.__solExpDiscard = (files) => {
 
-					doDiscard(files);
+					doDiscard(files, actionsDeps);
 
 				};
 
@@ -766,7 +545,7 @@ async function doStage(files) {
 
 					const all = [...state.scm.gitStatus?.unstaged || [], ...state.scm.gitStatus?.untracked || []].map((i) => i.path);
 
-					if (all.length) doStage(all);
+					if (all.length) doStage(all, actionsDeps);
 
 				};
 
@@ -774,7 +553,7 @@ async function doStage(files) {
 
 					const all = (state.scm.gitStatus?.staged || []).map((i) => i.path);
 
-					if (all.length) doUnstage(all);
+					if (all.length) doUnstage(all, actionsDeps);
 
 				};
 
@@ -782,7 +561,7 @@ async function doStage(files) {
 
 					const all = [...state.scm.gitStatus?.unstaged || [], ...state.scm.gitStatus?.untracked || []].map((i) => i.path);
 
-					if (all.length && (await showConfirm({ title: t("scm.changes"), message: t("scm.discardAllConfirm"), okText: document.documentElement.lang?.startsWith("zh") ? "放弃" : "Discard", danger: true }))) doDiscard(all);
+					if (all.length && (await showConfirm({ title: t("scm.changes"), message: t("scm.discardAllConfirm"), okText: document.documentElement.lang?.startsWith("zh") ? "放弃" : "Discard", danger: true }))) doDiscard(all, actionsDeps);
 
 				};
 
@@ -1905,9 +1684,9 @@ styleObs = new MutationObserver(syncGrid);
 
 						loadTree({ state, render });
 
-						loadRepos();
+						loadRepos(actionsDeps);
 
-						loadGitStatus();
+						loadGitStatus(actionsDeps);
 
 					}
 
@@ -1926,7 +1705,7 @@ styleObs = new MutationObserver(syncGrid);
 
 					if (root === "" || document.visibilityState !== "visible" || state.scm.scmDragging) return;
 
-					if (currentTab === "scm") loadGitStatus();
+					if (currentTab === "scm") loadGitStatus(actionsDeps);
 
 					else if (currentTab === "explorer") refreshTreeSilent({ state, render });
 
@@ -2030,7 +1809,7 @@ styleObs = new MutationObserver(syncGrid);
 
 						if (!result.ok) alert("保存失败: " + (result.error?.message || ""));
 
-						else { await loadGitStatus(); await loadTree({ state, render }); }
+						else { await loadGitStatus(actionsDeps); await loadTree({ state, render }); }
 
 					} catch (err) {
 
@@ -2142,6 +1921,9 @@ styleObs = new MutationObserver(syncGrid);
 
 				// History deps: injected into scm/history functions.
 				const historyDeps = { state, loadRemotes };
+
+				// Actions deps: injected into scm/actions functions.
+				const actionsDeps = { state, render, loadRecentCommits };
 
 				// Explorer bridges (tree interaction + search + clipboard +
 				// context-menu) — registered from their domain modules.

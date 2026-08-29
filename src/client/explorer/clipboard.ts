@@ -11,7 +11,7 @@ import { loadTree } from "./tree-render.ts"
 export interface ClipboardDeps {
   state: AppState
   render: () => void
-  loadGitStatus?: () => Promise<void>
+  loadGitStatus?: (deps?: any) => Promise<void>
 }
 
 const bytesToBase64 = (bytes: Uint8Array): string => {
@@ -102,7 +102,7 @@ export function registerClipboardBridges(deps: ClipboardDeps): () => void {
     if (failed) alert(failed + " 项粘贴失败");
     render();
     loadTree(deps);
-    deps.loadGitStatus?.();
+    deps.loadGitStatus?.(deps);
   };
 
   window.__solExpDragStart = (path) => {
@@ -156,7 +156,7 @@ export function registerClipboardBridges(deps: ClipboardDeps): () => void {
     if (failed) alert(failed + " 个文件上传失败");
     render();
     loadTree(deps);
-    deps.loadGitStatus?.();
+    deps.loadGitStatus?.(deps);
   };
   window.__solExpDropFiles = dropFiles;
 
@@ -216,7 +216,7 @@ export function registerClipboardBridges(deps: ClipboardDeps): () => void {
     if (failed) alert(failed + " 项移动失败");
     render();
     loadTree(deps);
-    deps.loadGitStatus?.();
+    deps.loadGitStatus?.(deps);
   };
 
   return () => {

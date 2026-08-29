@@ -17,7 +17,7 @@ import { loadTree, refreshTreeSilent } from "./tree-render.ts"
 export interface ContextMenuDeps {
   state: AppState
   render: () => void
-  loadGitStatus?: () => Promise<void>
+  loadGitStatus?: (deps?: any) => Promise<void>
 }
 
 export function registerContextMenuBridges(deps: ContextMenuDeps): () => void {
@@ -153,7 +153,7 @@ export function registerContextMenuBridges(deps: ContextMenuDeps): () => void {
       if (result.ok) {
         if (state.tree.treeState) refreshTreeSilent(deps);
         else loadTree(deps);
-        deps.loadGitStatus?.();
+        deps.loadGitStatus?.(deps);
       } else {
         showToast(result.error?.message || "重命名失败", true);
         render();
