@@ -1,4 +1,5 @@
 import * as fsp from 'node:fs/promises'
+import * as os from 'node:os'
 import * as pathModule from 'node:path'
 
 import { git, isGitRepo } from '../git-runner.ts'
@@ -50,6 +51,50 @@ export const gitWritePost: Record<string, Handler> = {
     if (!root || !message) { json(res, { ok: false, error: { message: 'root and message required' } }); return }
     const result = git(['commit', '-m', message], root)
     json(res, result.ok ? { ok: true, value: result.stdout } : { ok: false, error: { message: result.error } })
+  },
+  '/solution-explorer/git-stage-hunk': async ({ res, payload }) => {
+    const root = typeof payload.root === 'string' ? payload.root : ''
+    const file = typeof payload.file === 'string' ? payload.file : ''
+    const oldStart = typeof payload.oldStart === 'number' ? payload.oldStart : NaN
+    const newStart = typeof payload.newStart === 'number' ? payload.newStart : NaN
+    if (!root || !file || !Number.isFinite(oldStart) || !Number.isFinite(newStart)) {
+      json(res, { ok: false, error: { message: 'root, file, oldStart, newStart required' } }); return
+    }
+    try {
+      const diffResult = git(['diff', '--', file], root)
+      if (!diffResult.ok) { json(res, { ok: false, error: { message: diffResult.error } }); return }
+      const diffLines = diffResult.stdout.split('\n')
+      // Split the diff into hunks (@@ headers), keeping the header's own line.
+      const hunks: Array<{ oldStart: number; newStart: number; line: string; body: string[] }> = []
+      let cur: (typeof hunks)[number] | null = null
+      for (const line of diffLines) {
+        const m = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
+        if (m) {
+          cur = { oldStart: +m[1], newStart: +m[2], line, body: [] }
+          hunks.push(cur)
+        } else if (cur) {
+          cur.body.push(line)
+        }
+      }
+      const hunk = hunks.find((h) => h.oldStart === oldStart && h.newStart === newStart)
+      if (!hunk) { json(res, { ok: false, error: { message: 'hunk not found' } }); return }
+      // Patch = diff header (diff --git / index / --- / +++) + the hunk's own
+      // @@ line + body. `git apply --cached` stages only this hunk into the
+      // index; the working tree keeps the change (VS Code "stage selected").
+      const header = diffLines.slice(0, 4).join('\n')
+      const patch = `${header}\n${hunk.line}\n${hunk.body.join('\n')}\n`
+      const patchFile = pathModule.join(os.tmpdir(), 'sol-exp-hunk-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.patch')
+      await fsp.writeFile(patchFile, patch, 'utf-8')
+      try {
+        const applied = git(['apply', '--cached', patchFile], root)
+        if (!applied.ok) { json(res, { ok: false, error: { message: applied.error } }); return }
+        json(res, { ok: true, value: { staged: true } })
+      } finally {
+        await fsp.unlink(patchFile).catch(() => {})
+      }
+    } catch (err) {
+      json(res, { ok: false, error: { message: err instanceof Error ? err.message : String(err) } })
+    }
   },
   '/solution-explorer/git-init': async ({ res, root }) => {
     if (!root) { json(res, { ok: false, error: { message: 'root required' } }); return }

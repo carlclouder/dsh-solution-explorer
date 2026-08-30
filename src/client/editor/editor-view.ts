@@ -319,6 +319,36 @@ export function EditorView(props) {
 
 				} }, document.documentElement.lang?.startsWith("zh") ? "二进制文件无法预览差异" : "Cannot preview diff of a binary file");
 
+const hunks = [];
+
+{
+
+let curHunk = null;
+
+for (const _l of (dstate.diffContent || "").split("\n")) {
+
+const _m = _l.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+
+if (_m) { curHunk = { oldStart: +_m[1], oldCount: _m[2] ? +_m[2] : 1, newStart: +_m[3], newCount: _m[4] ? +_m[4] : 1, index: hunks.length }; hunks.push(curHunk); }
+
+}
+
+}
+
+const _rowHunk = (oldNum, newNum) => {
+
+for (const h of hunks) {
+
+if (oldNum !== null && oldNum >= h.oldStart && oldNum < h.oldStart + h.oldCount) return h.index;
+
+if (newNum !== null && newNum >= h.newStart && newNum < h.newStart + h.newCount) return h.index;
+
+}
+
+return -1;
+
+};
+
 				if (!diffRows || diffRows.path !== dstate.diffPath || diffRows.staged !== dstate.diffStaged) {
 
 					const parsed = parseSideBySide(dstate.diffContent || "");
@@ -367,7 +397,13 @@ j = paired + 1;
 
 } else {
 
-full.push({ id: rowIdRef.current++, old: oldLines[i - 1], new: j <= newLines.length ? newLines[j - 1] : "", oldNum: i, newNum: j <= newLines.length ? j : null, inNew: j <= newLines.length, oldDel: false, newAdd: false });
+const _oldT = oldLines[i - 1].replace(/\r$/, "");
+
+const _newT = (j <= newLines.length ? newLines[j - 1] : "").replace(/\r$/, "");
+
+const _changed = _oldT !== _newT;
+
+full.push({ id: rowIdRef.current++, old: oldLines[i - 1], new: j <= newLines.length ? newLines[j - 1] : "", oldNum: i, newNum: j <= newLines.length ? j : null, inNew: j <= newLines.length, oldDel: _changed, newAdd: _changed });
 
 j++;
 
@@ -383,6 +419,8 @@ j++;
 
 }
 
+full.forEach((r) => { r.hunk = _rowHunk(r.oldNum, r.newNum); });
+
 const diffLang = langFromPath(dstate.diffPath);
 
 const oldRuns = diffLang ? (highlightLinesHtml(dstate.diffOldContent || "", diffLang) ?? undefined) : undefined;
@@ -394,6 +432,56 @@ setDiffDirty(false);
 				}
 
 				const rows = (diffRows && diffRows.path === dstate.diffPath && diffRows.staged === dstate.diffStaged) ? diffRows.rows : [];
+
+				const hunkStartRow = new Map();
+
+				rows.forEach((r, i) => { if ((r.oldDel || r.newAdd) && r.hunk !== undefined && !hunkStartRow.has(r.hunk)) hunkStartRow.set(r.hunk, i); });
+
+				const stageHunk = async (hunk) => {
+
+					try {
+
+						const result = await (await fetch("/solution-explorer/git-stage-hunk", {
+
+							method: "POST",
+
+							headers: { "Content-Type": "application/json" },
+
+							body: JSON.stringify({ root: dstate.diffRoot, file: dstate.diffPath, oldStart: hunk.oldStart, newStart: hunk.newStart })
+
+						})).json();
+
+						if (!result.ok) alert("暂存块失败: " + (result.error?.message || ""));
+
+						else window.__solExpRefreshSCM?.();
+
+					} catch (err) { alert("暂存块失败: " + (err.message || String(err))); }
+
+				};
+
+				const revertHunk = (hunkIndex) => {
+
+					setDiffRows((prev) => {
+
+						if (!prev) return prev;
+
+						const nr = prev.rows.map((r) => {
+
+							if (r.hunk !== hunkIndex) return r;
+
+							if (r.old !== "") return { ...r, new: r.old, oldDel: false, newAdd: false, inNew: true };
+
+							return { ...r, new: "", oldDel: false, newAdd: false, inNew: true };
+
+						});
+
+						return { ...prev, rows: nr };
+
+					});
+
+					setDiffDirty(true);
+
+				};
 
 				if (rows.length === 0) return h("div", { style: {
 
@@ -717,7 +805,7 @@ setDiffDirty(false);
 
 					color: r.oldDel ? "#f14c4c" : "var(--dsw-alias-label-primary)"
 
-				} }, h("span", { style: numStyle }, r.oldNum === null ? "" : String(r.oldNum)), r.old === "" ? h("span", null, NBSP) : (diffRows && diffRows.oldRuns && r.oldNum !== null ? h("span", { dangerouslySetInnerHTML: { __html: diffRows.oldRuns[r.oldNum - 1] ?? "" } }) : h("span", null, r.old))))), h("div", { className: "sol-exp-hl", style: {
+				} }, h("span", { style: numStyle }, r.oldNum === null ? "" : String(r.oldNum)), r.old === "" ? h("span", null, NBSP) : (diffRows && diffRows.oldRuns && r.oldNum !== null ? h("span", { dangerouslySetInnerHTML: { __html: diffRows.oldRuns[r.oldNum - 1] ?? "" } }) : h("span", null, r.old))))), h("div", { style: { flex: "none", width: "28px", borderLeft: "1px solid var(--dsw-alias-border-l1)", borderRight: "1px solid var(--dsw-alias-border-l1)", display: "flex", flexDirection: "column", overflow: "hidden" } }, rows.map((r, i) => { const isStart = hunkStartRow.get(r.hunk) === i; let child = null; if (isStart) { child = h("div", { style: { display: "flex", gap: "1px" } }, h("button", { type: "button", title: "暂存块", onClick: () => stageHunk(hunks[r.hunk]), style: { border: "none", background: "transparent", cursor: "pointer", fontSize: "11px", color: "var(--dsw-alias-label-secondary)", padding: "0 2px", lineHeight: "14px" } }, "⤒"), h("button", { type: "button", title: "还原块", onClick: () => revertHunk(r.hunk), style: { border: "none", background: "transparent", cursor: "pointer", fontSize: "11px", color: "var(--dsw-alias-label-secondary)", padding: "0 2px", lineHeight: "14px" } }, "↩")); } else if (r.oldDel || r.newAdd) { child = h("span", { style: { width: "6px", height: "6px", borderRadius: "50%", display: "inline-block", background: r.oldDel ? "#f14c4c" : "#4ec9b0", opacity: 0.65 } }, null); } return h("div", { key: "g" + r.id, style: { height: "18px", lineHeight: "18px", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" } }, child); })), h("div", { className: "sol-exp-hl", style: {
 
 					flex: "1 1 50%",
 
